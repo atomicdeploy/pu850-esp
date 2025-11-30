@@ -350,7 +350,8 @@ fi
 # Compile the sketch
 # Note: Removed --build-cache-path as it's deprecated
 # Arduino CLI compiles the sketch from the workspace directory
-build_command="arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:${board_params} --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags=--no_cache_core --build-property build.opt.flags= --build-property build.extra_flags=\"-Wall ${build_flags}\" --build-path \"${VSCA_BUILD_DIR}\" --jobs 0 --log-level trace --log-file \"${log_file}\" ${arduino_cli_flags} \"${VSCA_WORKSPACE_DIR}\""
+# Add LocalLib to library path so local includes work
+build_command="arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:${board_params} --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags=--no_cache_core --build-property build.opt.flags= --build-property build.extra_flags=\"-Wall ${build_flags}\" --build-path \"${VSCA_BUILD_DIR}\" --libraries \"${VSCA_WORKSPACE_DIR}/LocalLib\" --jobs 0 --log-level trace --log-file \"${log_file}\" ${arduino_cli_flags} \"${VSCA_WORKSPACE_DIR}\""
 
 # Execute the build command with output filtering similar to PowerShell version
 eval "$build_command" 2>&1 | while IFS= read -r line; do
