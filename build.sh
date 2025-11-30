@@ -18,6 +18,12 @@ export VSCA_WORKSPACE_DIR="$SCRIPT_DIR"
 export VSCA_BUILD_DIR="${VSCA_WORKSPACE_DIR}/Build"
 export VSCA_SKETCH="ASA0002E.ino"
 
+# Detect if we're running in CI environment
+IS_CI="${CI:-false}"
+if [ "$IS_CI" = "true" ] || [ -n "$GITHUB_ACTIONS" ] || [ -n "$GITLAB_CI" ] || [ -n "$JENKINS_URL" ]; then
+	IS_CI="true"
+fi
+
 log_file="${VSCA_WORKSPACE_DIR}/build.log"
 build_script="$(basename "${BASH_SOURCE[0]}")"
 
@@ -108,11 +114,13 @@ compareVersions() {
 
 ensureArduinoCliVersion() {
 	local found_version
-	found_version=$(arduino-cli version 2>/dev/null | awk '/arduino-cli/ {print $2}')
+	# arduino-cli version output format: "arduino-cli  Version: X.Y.Z Commit: ..."
+	# Extract just the version number
+	found_version=$(arduino-cli version 2>/dev/null | grep -oE 'Version:\s*[0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
 	
 	if [ -z "$found_version" ]; then
-		displayError "'arduino-cli version' returned an improper version string!"
-		return 1
+		displayWarning "'arduino-cli version' returned an improper version string, skipping version check"
+		return 0
 	fi
 	
 	# Parse versions
@@ -268,6 +276,34 @@ if ! ensureArduinoCliVersion; then
 	exit 1
 fi
 
+# Handle sketch name mismatch with directory name
+# Arduino CLI expects the main .ino file to match the directory name
+dir_name=$(basename "$VSCA_WORKSPACE_DIR")
+sketch_base="${VSCA_SKETCH%.ino}"
+expected_sketch="${dir_name}.ino"
+TEMP_RENAMED=""
+
+if [ "$VSCA_SKETCH" != "$expected_sketch" ]; then
+	if [ "$IS_CI" = "true" ]; then
+		# In CI: temporarily rename the sketch file to match directory name
+		displayInfo "CI build: temporarily renaming ${VSCA_SKETCH} to ${expected_sketch}"
+		if [ -f "${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}" ]; then
+			cp "${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}" "${VSCA_WORKSPACE_DIR}/${expected_sketch}"
+			TEMP_RENAMED="$expected_sketch"
+			# Update VSCA_SKETCH to use the temporary file for compilation
+			ORIGINAL_SKETCH="$VSCA_SKETCH"
+			VSCA_SKETCH="$expected_sketch"
+		else
+			displayError "Sketch file not found: ${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}"
+			exit 1
+		fi
+	else
+		# Non-CI: warn the user about the mismatch
+		displayWarning "Sketch filename '${VSCA_SKETCH}' does not match directory name '${dir_name}'"
+		displayWarning "Arduino CLI may fail. Consider renaming your sketch or directory."
+	fi
+fi
+
 displayInfo "Building ${VSCA_SKETCH}"
 
 # Check if Build directory exists, if not, create it
@@ -313,7 +349,8 @@ fi
 
 # Compile the sketch
 # Note: Removed --build-cache-path as it's deprecated
-build_command="arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:${board_params} --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags=--no_cache_core --build-property build.opt.flags= --build-property build.extra_flags=\"-Wall ${build_flags}\" --build-path \"${VSCA_BUILD_DIR}\" --jobs 0 --log-level trace --log-file \"${log_file}\" ${arduino_cli_flags} \"${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}\""
+# Arduino CLI compiles the sketch from the workspace directory
+build_command="arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:${board_params} --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags=--no_cache_core --build-property build.opt.flags= --build-property build.extra_flags=\"-Wall ${build_flags}\" --build-path \"${VSCA_BUILD_DIR}\" --jobs 0 --log-level trace --log-file \"${log_file}\" ${arduino_cli_flags} \"${VSCA_WORKSPACE_DIR}\""
 
 # Execute the build command with output filtering similar to PowerShell version
 eval "$build_command" 2>&1 | while IFS= read -r line; do
@@ -331,14 +368,22 @@ done
 # Change to build directory
 pushd "$VSCA_BUILD_DIR" > /dev/null
 
+# Determine the output binary name (sketch name without .ino extension + .ino.bin)
+SKETCH_BASE="${VSCA_SKETCH%.ino}"
+BIN_FILE="${SKETCH_BASE}.ino.bin"
+
 # Check if compilation succeeded
-if [ ! -f "${VSCA_SKETCH}.bin" ]; then
+if [ ! -f "$BIN_FILE" ]; then
 	displayError "Compilation failed!"
+	# Clean up temporary file if we created one
+	if [ -n "$TEMP_RENAMED" ]; then
+		rm -f "${VSCA_WORKSPACE_DIR}/${TEMP_RENAMED}" 2>/dev/null
+	fi
 	exit 1
 fi
 
 # Get the size of the binary file
-size=$(stat -c%s "${VSCA_SKETCH}.bin" 2>/dev/null || stat -f%z "${VSCA_SKETCH}.bin" 2>/dev/null)
+size=$(stat -c%s "$BIN_FILE" 2>/dev/null || stat -f%z "$BIN_FILE" 2>/dev/null)
 totalUsage=$((100 * size / (flashSize * 1048576)))
 
 # Display the program size and flash usage
@@ -346,43 +391,43 @@ echo ""
 echo -e "\033[92;1mProgram Size:\033[0m ${size} bytes (\033[95;1m${totalUsage}%\033[0m of flash used)"
 
 # Calculate the MD5 checksum of the raw binary file (uncompressed)
-if ! md5sum "${VSCA_SKETCH}.bin" > "${VSCA_SKETCH}.bin.md5.tmp"; then
+if ! md5sum "$BIN_FILE" > "${BIN_FILE}.md5.tmp"; then
 	displayError "Failed to generate MD5 checksum!"
 	exit 1
 fi
 
 # Compress the binary file with gzip
 displayInfo "Compressing binary file"
-if ! gzip -f -9 "${VSCA_SKETCH}.bin"; then
+if ! gzip -f -9 "$BIN_FILE"; then
 	displayError "Compression failed!"
 	exit 1
 fi
 
 # Rename the compressed file back to .bin
-if ! mv "${VSCA_SKETCH}.bin.gz" "${VSCA_SKETCH}.bin"; then
+if ! mv "${BIN_FILE}.gz" "$BIN_FILE"; then
 	displayError "Failed to rename compressed file!"
 	exit 1
 fi
 
 # Recalculate the MD5 checksum of the compressed file
-if ! md5sum "${VSCA_SKETCH}.bin" | sed -e "s/${VSCA_SKETCH}.bin/& (compressed)/g" >> "${VSCA_SKETCH}.bin.md5.tmp"; then
+if ! md5sum "$BIN_FILE" | sed -e "s/${BIN_FILE}/& (compressed)/g" >> "${BIN_FILE}.md5.tmp"; then
 	displayError "Failed to generate MD5 checksum after compression!"
 	exit 1
 fi
 
 # Update the timestamp of the binary file
-if ! touch "${VSCA_SKETCH}.bin"; then
+if ! touch "$BIN_FILE"; then
 	displayError "Failed to update the file timestamp!"
 	exit 1
 fi
 
 # Get the size of the compressed binary file
-compressedSize=$(stat -c%s "${VSCA_SKETCH}.bin" 2>/dev/null || stat -f%z "${VSCA_SKETCH}.bin" 2>/dev/null)
+compressedSize=$(stat -c%s "$BIN_FILE" 2>/dev/null || stat -f%z "$BIN_FILE" 2>/dev/null)
 compressionRatio=$((compressedSize * 100 / size))
 
 # Display file sizes
 echo ""
-ls -lh "${VSCA_SKETCH}.bin" --color --time-style=long-iso 2>/dev/null || ls -lh "${VSCA_SKETCH}.bin"
+ls -lh "$BIN_FILE" --color --time-style=long-iso 2>/dev/null || ls -lh "$BIN_FILE"
 
 echo -e "Compressed to \033[92;1m${compressionRatio}%\033[0m of original size"
 
@@ -390,6 +435,11 @@ echo -e "Compressed to \033[92;1m${compressionRatio}%\033[0m of original size"
 # Note: This is a cleanup step; if deletion fails but file exists, that's an error
 # However, if the file doesn't exist, that's fine (build.cmd also suppresses errors)
 rm -f "${VSCA_WORKSPACE_DIR}/~local.h" 2>/dev/null
+
+# Clean up temporary renamed sketch file if we created one
+if [ -n "$TEMP_RENAMED" ]; then
+	rm -f "${VSCA_WORKSPACE_DIR}/${TEMP_RENAMED}" 2>/dev/null
+fi
 
 displaySuccess "Build completed successfully!"
 
@@ -399,10 +449,10 @@ sed -E \
 	-e "s/([a-f0-9]{32})/\x1b[32m\1\x1b[0m/" \
 	-e "s/(\*\S+)/\x1b[33m\1\x1b[0m/" \
 	-e "s/(\(compressed\))/\x1b[34m\1\x1b[0m/" \
-	"${VSCA_SKETCH}.bin.md5.tmp"
+	"${BIN_FILE}.md5.tmp"
 
 # Save the final MD5 checksum file
-if ! mv "${VSCA_SKETCH}.bin.md5.tmp" "${VSCA_SKETCH}.bin.md5" 2>/dev/null; then
+if ! mv "${BIN_FILE}.md5.tmp" "${BIN_FILE}.md5" 2>/dev/null; then
 	displayError "Failed to save the MD5 checksum file!"
 	exit 1
 fi

@@ -33,6 +33,8 @@ jobs:
             additional_urls:
               - https://arduino.esp8266.com/stable/package_esp8266com_index.json
           EOF
+          # Remove leading spaces from the YAML file
+          sed -i 's/^          //' .vscode/arduino-cli.yaml
 
       - name: Install ESP8266 platform
         run: |
