@@ -7,6 +7,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-latest
@@ -29,7 +32,7 @@ jobs:
             echo   user: %USERPROFILE%\Documents\Arduino
             echo board_manager:
             echo   additional_urls:
-            echo     - http://arduino.esp8266.com/stable/package_esp8266com_index.json
+            echo     - https://arduino.esp8266.com/stable/package_esp8266com_index.json
           ) > .vscode\arduino-cli.yaml
 
       - name: Install ESP8266 platform
@@ -59,4 +62,3 @@ jobs:
           name: firmware
           path: Build/*.bin
           if-no-files-found: error
-
