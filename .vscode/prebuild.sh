@@ -37,9 +37,9 @@ cat > "$h_file" << EOF
 EOF
 
 # clean up old checksum file
-rm -f "${VSCA_BUILD_DIR:-.}/Build/${VSCA_SKETCH:-ASA0002E.ino}.bin.md5" 2>/dev/null
+rm -f "${VSCA_BUILD_DIR:-./Build}/${VSCA_SKETCH:-ASA0002E.ino}.bin.md5" 2>/dev/null
 
 # clean up old h file in build directory
-rm -f "${VSCA_BUILD_DIR:-.}/Build/sketch/${h_file}" 2>/dev/null
+rm -f "${VSCA_BUILD_DIR:-./Build}/sketch/${h_file}" 2>/dev/null
 
 exit 0

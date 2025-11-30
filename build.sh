@@ -134,9 +134,9 @@ elapsedTime() {
 	local start_sec=$1
 	local end_sec=$2
 	
-	# Calculate elapsed time
+	# Calculate elapsed time using awk (more portable than bc)
 	local elapsed
-	elapsed=$(echo "$end_sec - $start_sec" | bc 2>/dev/null || echo "0")
+	elapsed=$(awk "BEGIN {printf \"%.2f\", $end_sec - $start_sec}" 2>/dev/null || echo "0.00")
 	
 	echo -e "Elapsed Time: \033[93;1m${elapsed}s\033[0m total"
 }
