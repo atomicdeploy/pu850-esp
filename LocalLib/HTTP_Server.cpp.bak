@@ -1,0 +1,77 @@
+U16 HTTP_PORT = 80;
+
+WiFiServer httpServer(HTTP_PORT);
+
+void HTTP_Server_Init()
+{
+	// start http server
+	httpServer.begin();
+}
+
+void HTTP_Server_Service()
+{
+	// Check if a client is available
+	WiFiClient client = httpServer.available();
+
+	if (!client)
+	{
+		return;
+	}
+
+	// Serial.println("New Client Connected");
+
+	String request = client.readStringUntil('\r'); /* Read the first line of the request from client */
+	// Serial.println(request); /* Print the request on the Serial monitor */
+	
+	/* The request is in the form of HTTP GET Method */
+	client.flush();
+
+	if (request.indexOf("/beep") != -1)
+	{
+		// Serial.println("Beep received.");
+		Request_Beep(1);
+	}
+
+	/* HTTP Response headers */
+	client.println("HTTP/1.1 200 OK");
+	client.println("Content-Type: text/html");
+	client.println();
+
+	/* HTTP Response Body in the form of HTML Web Page */
+	client.println("<!DOCTYPE HTML>");
+	client.println("<html>");
+	client.println("<head>");
+	client.println("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+	client.println("<link rel=\"icon\" href=\"data:,\">");
+	/* CSS Styling for Buttons and Web Page */
+	client.println("<style>");
+	client.println("html { font-family: sans-serif; display: inline-block; margin: 0px auto; text-align: center;}");
+	client.println(".button {border: none; color: white; padding: 10px 20px; text-align: center;");
+	client.println("text-decoration: none; font-size: 25px; margin: 2px; cursor: pointer;}");
+	client.println(".button1 {background-color: #13B3F0;}");
+	client.println(".button2 {background-color: #3342FF;}");
+	client.println("</style>");
+	client.println("<script>setTimeout(function(){location.reload();}, 2000)</script>");
+	client.println("</head>");
+
+	/* The main body of the Web Page */
+	client.println("<body>");
+	client.println("<h2>PU850 ESP</h2>");
+	client.print("<h4>AP IP"); client.print(WiFi.softAPIP()); client.print("</h4>");
+	client.print("<h4>STA IP:"); client.print(WiFi.localIP());
+	client.print("</h4>");
+
+	// client.printf("<p>Value: %d</p>", myValue);
+	client.print("<p><a href=\"/beep\"><button class=\"button button1\">Send Beep</button></a></p>");
+
+	client.println("</body>");
+	client.println("</html>");
+	client.print("\n");
+
+	delay(1);
+
+	/* Close the connection */
+	client.stop();
+	// Serial.println("Client disconnected");
+	// Serial.print("\n");
+}

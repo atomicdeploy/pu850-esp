@@ -1,0 +1,150 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+	<title>WebSocket Client</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="icon" href="data:,">
+	<style>
+		* { box-sizing: border-box; }
+
+		html {
+			font-family: 'Segoe UI', sans-serif;
+			text-align: center;
+		}
+		
+		h1 {
+			font-size: 1.8em;
+			color: white;
+		}
+		
+		h2 {
+			font-size: 1.5em;
+			font-weight: bold;
+			color: #2f3542;
+		}
+		
+		.topnav {
+			overflow: hidden;
+			background-color: #2f3542;
+		}
+		
+		body {
+			margin: 0;
+			padding: 0;
+			background: #f1f2f6;
+		}
+		
+		.content {
+			padding: 30px;
+			max-width: 600px;
+			margin: 0 auto;
+		}
+		
+		.card {
+			background-color: #fff;
+			box-shadow: 0 2px 4px rgb(50 50 93 / 10%);
+			border: 0 solid #95a5a6;
+			border-radius: 5px;
+			padding-top: 10px;
+			padding-bottom: 20px;
+		}
+		
+		.button {
+			padding: 15px 50px;
+			font-size: 24px;
+			text-align: center;
+			outline: none;
+			color: #fff;
+			background-color: #1e90ff;
+			border: none;
+			border-radius: 5px;
+			-webkit-touch-callout: none;
+			-webkit-user-select: none;
+			-khtml-user-select: none;
+			-moz-user-select: none;
+			-ms-user-select: none;
+			user-select: none;
+			-webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+		}
+		
+		.button:active {
+			background-color: #2ed573;
+			box-shadow: 2 2px #CDCDCD;
+			/* transform: translateY(2px); */
+		}
+		
+		.state {
+			font-size: 1.5rem;
+			color: #8c8c8c;
+			font-weight: bold;
+		}
+	</style>
+</head>
+<body>
+	<div class="topnav">
+		<h1>WebSocket Client</h1>
+	</div>
+	<div class="content">
+		<div class="card">
+			<h2>WebSocket Client</h2>
+			<p class="state">state: <span id="state">---</span></p>
+			<p><button id="button" class="button">Send</button></p>
+		</div>
+	</div>
+	<textarea id="status" style="width: 100%; font-family: monospace; margin: 0;" disabled="disabled" readonly="readonly"></textarea>
+	<h4>ASA PU850</h4>
+<script>
+	var gateway = `ws://pu850.local:80/ws`;
+	var websocket;
+	function initWebSocket() {
+		console.log('Trying to open a WebSocket connection...');
+		websocket = new WebSocket(gateway);
+		websocket.onopen    = onOpen;
+		websocket.onclose   = onClose;
+		websocket.onmessage = onMessage;
+	}
+	function onOpen(event) {
+		console.log('Connection opened');
+
+		document.querySelector('#status').value = '';
+	}
+
+	function onClose(event) {
+		console.log('Connection closed');
+		setTimeout(initWebSocket, 2000);
+
+		// document.querySelector('#status').value = '';
+	}
+	function onMessage(event) {
+		var state;
+		if (!!event.data)
+		{
+			// console.warn( parseInt(event.data) - parseInt(document.getElementById('state').innerHTML) );
+			console.log(event.data);
+
+
+			// alert(event.data);
+			document.getElementById('state').innerHTML = event.data;
+
+		}
+		// document.getElementById('state').innerHTML = JSON.stringify(event);
+
+		document.querySelector('#status').value += '.';
+	}
+	window.addEventListener('load', onLoad);
+	function onLoad(event) {
+		initWebSocket();
+		initButton();
+
+		document.querySelector('#status').value = '';
+	}
+
+	function initButton() {
+		document.getElementById('button').addEventListener('click', toggle);
+	}
+	function toggle(){
+		websocket.send('client:helloWorld');
+	}
+</script>
+</body>
+</html>

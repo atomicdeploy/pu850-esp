@@ -1,0 +1,71 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\David\\Desktop\\ASA0002E\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\David\\Desktop\\ASA0002E\\LocalLib\\AsyncOTA.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:LocalLib\\AsyncOTA.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\David\\Desktop\\ASA0002E\\ASA0002E.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:ASA0002E.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\David\\Desktop\\ASA0002E\\ASA0002E.ino||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:ASA0002E.ino||{8B382828-6202-11D1-8870-0000F87579D2}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 1,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedHeight": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "AsyncOTA.cpp",
+              "DocumentMoniker": "C:\\Users\\David\\Desktop\\ASA0002E\\LocalLib\\AsyncOTA.cpp",
+              "RelativeDocumentMoniker": "LocalLib\\AsyncOTA.cpp",
+              "ToolTip": "C:\\Users\\David\\Desktop\\ASA0002E\\LocalLib\\AsyncOTA.cpp",
+              "RelativeToolTip": "LocalLib\\AsyncOTA.cpp",
+              "ViewState": "AgIAADYAAAAAAAAAAAAAAGIAAAAdAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2025-04-14T13:53:36.559Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "ASA0002E.h",
+              "DocumentMoniker": "C:\\Users\\David\\Desktop\\ASA0002E\\ASA0002E.h",
+              "RelativeDocumentMoniker": "ASA0002E.h",
+              "ToolTip": "C:\\Users\\David\\Desktop\\ASA0002E\\ASA0002E.h",
+              "RelativeToolTip": "ASA0002E.h",
+              "ViewState": "AgIAAGwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2025-04-14T13:53:17.411Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "ASA0002E.ino",
+              "DocumentMoniker": "C:\\Users\\David\\Desktop\\ASA0002E\\ASA0002E.ino",
+              "RelativeDocumentMoniker": "ASA0002E.ino",
+              "ToolTip": "C:\\Users\\David\\Desktop\\ASA0002E\\ASA0002E.ino",
+              "RelativeToolTip": "ASA0002E.ino",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAATGSURBVEhLrVVpbFRVFP7unfdmpjPTdkqhZbFBg5S2VIpAWzC4xWKI\u002BgOjvzQx8YeJxAQTNYbERFwTl0Rx4T8xBNBgUGKMVX6Iy4\u002BGstQFaFgs7UD3bfa3Xr/7OlUxBEE4kzNv3vnePefc73z3jcA/zPV9hIQQZ9LZsoxth1UpfjWWME2nvrI8b/tKRUJyJqiUCgr0Tk6jPlmBvWfONQ4XCo/lXHetp1QFnwie\u002B28TkELkYiGju6YsuvvxpUt6esYm1Mp51RCHh0fQ\u002Bvl\u002B7Lhz/QP92ez2adte6vrX0vvfFpICFaY5cFM8/uKWFc2f/nBxSIntx39BRIYaT05NfjFWtOpnur6EuWs0hapI5EJ9ZfKRvOt2hb5pakZDVdWz7P5hy/XgcA7X61nbreAo3DfWtX4tDvSejX3W1/flYCHfUWrhuk2RhJpo9Mi9C\u002BZvlAOZTJi8l2ddFxzuJa5jl4vP\u002BpXwtOMkRguFqMxYlmBA5ElPruRZx0WGbnl\u002B4Pq3jv2F09Ml3C7h2mfxvKevXGPZMPilCrwpMCj4IXdYFI9h0y2Lcfu8uVrKODIyhgN953ExXwgomBeN4qGb69BeW4OwDOG3iQnsP9eHPzJZLVeOWaGgG7EdyKzjBJ3o4RR9D3WJGN5pX4NN82swciGF8aFBPLpoPt5f145lFeWoY/F3167BE4vrkB4eQirVjw3VVXhvbWuAF9mozVwWr3nmFk991ZnsSqc7J1ynjacYr65aiZZYFC98dxAnCkVASjTE49h2xzrEEwlYXGxaRWz7/hBSrg/FU5vkM2/fcxfG2OjzXd2wuMtKw\u002Bi9LZ7okJozntpg61WmiWZ2se/kKaRCJjY2LceDjU0YD0fxyuFuRPlcrRHC6z/9jD7iT7e34ZnVqzFuRrDn9Fncmoij1jQCWjXVmnaZ45cuENRQHJpto0heDcNART6HymwapueiaIbB9xNyHFw\u002BUgaTzZjEQ5kSLiQsYuA8temcpQIub3ydHVNFC7\u002BOjOLuRQsRZ4K9g0PYNTjMd0AIm5cthcWEI9PT2Ly8CQk28PGJU/jo9xMQ/L1hQS16h4cxUpgRgs/XTSCc9Xv2JYdsu9NSfptPfpeRgueWN8A3THRPTlEVwOqqJAx2v\u002BPoMeTZ6ZaWFYiURXF4fCIQyCoOuZxrPzh6HMfJhORuw0L0zjXNDtG6a29y3HE6HaXadGXFLS5WHu6nipYkKwM\u002BTzPRwQuD6A8ZIDdYwM7uq6lG45w5MDjg81NT\u002BHYghTMiBFEWC3ZgskCFYXSIlp27kmnP63RLBfRrztdbo1IirhOcez0TUPuSuwKVpnESHuCS9Gr\u002BlcbZuSKuzYDojYdkh3T1UDgHoZPqhXT9dyEiUVgxyjJeDhmLU60sQhpmcRmJwGG8SFzEE5B6d8Rn8yjf5bxdSN9zHeV6Wb3w3y70glLSy/qVcNfLK8\u002BzZGpyKsdSR4U\u002BdTfQmbOHe5qQ1eGwrrabgX494BvhzDVG/ySbz3tSb6ehueUYga3KsS8qypHX/\u002Bcza8eZ62XO6ZDOHYy87s23KA5BOqkk5T9J4bQyHNfYNViBAuqBkDuFFD9Sfd7AS1tnCszawm2vaVlSzKKKt9GZ6FWbxbWTQkrXGh3F2I4PGQL\u002BBKFFrHRPnaC7AAAAAElFTkSuQmCC",
+              "WhenOpened": "2025-04-14T13:50:36.286Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

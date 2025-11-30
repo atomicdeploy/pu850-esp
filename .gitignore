@@ -1,3 +1,9 @@
+# Build
+[Bb]uild
+
+# Logs
+*.log
+
 # Prerequisites
 *.d
 
@@ -45,7 +51,6 @@
 
 # Kernel Module Compile Results
 *.mod*
-*.cmd
 .tmp_versions/
 modules.order
 Module.symvers
