@@ -1,0 +1,62 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Create Arduino CLI config
+        shell: cmd
+        run: |
+          if not exist ".vscode" mkdir ".vscode"
+          (
+            echo directories:
+            echo   data: %USERPROFILE%\AppData\Local\Arduino15
+            echo   downloads: %USERPROFILE%\AppData\Local\Arduino15\staging
+            echo   user: %USERPROFILE%\Documents\Arduino
+            echo board_manager:
+            echo   additional_urls:
+            echo     - http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          ) > .vscode\arduino-cli.yaml
+
+      - name: Install ESP8266 platform
+        shell: cmd
+        run: |
+          arduino-cli --config-file .vscode\arduino-cli.yaml core update-index
+          arduino-cli --config-file .vscode\arduino-cli.yaml core install esp8266:esp8266@3.1.2
+
+      - name: Install required libraries
+        shell: cmd
+        run: |
+          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ESP_EEPROM@2.2.1"
+          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ESP Telnet@2.2.1"
+          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ESP Async TCP@2.0.0"
+          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ESP Async WebServer@3.7.1"
+          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "NTPClient@3.2.1"
+          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ArduinoJson@7.0.4"
+          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "Arduino_JSON@0.2.0"
+
+      - name: Build firmware
+        shell: cmd
+        run: call build.cmd
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: Build/*.bin
+          if-no-files-found: error
+
