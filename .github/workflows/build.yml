@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -22,39 +22,44 @@ jobs:
         uses: arduino/setup-arduino-cli@v2
 
       - name: Create Arduino CLI config
-        shell: cmd
         run: |
-          if not exist ".vscode" mkdir ".vscode"
-          (
-            echo directories:
-            echo   data: %USERPROFILE%\AppData\Local\Arduino15
-            echo   downloads: %USERPROFILE%\AppData\Local\Arduino15\staging
-            echo   user: %USERPROFILE%\Documents\Arduino
-            echo board_manager:
-            echo   additional_urls:
-            echo     - https://arduino.esp8266.com/stable/package_esp8266com_index.json
-          ) > .vscode\arduino-cli.yaml
+          mkdir -p .vscode
+          cat > .vscode/arduino-cli.yaml << 'EOF'
+          directories:
+            data: ~/.arduino15
+            downloads: ~/.arduino15/staging
+            user: ~/Arduino
+          board_manager:
+            additional_urls:
+              - https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          EOF
 
       - name: Install ESP8266 platform
-        shell: cmd
         run: |
-          arduino-cli --config-file .vscode\arduino-cli.yaml core update-index
-          arduino-cli --config-file .vscode\arduino-cli.yaml core install esp8266:esp8266@3.1.2
+          arduino-cli --config-file .vscode/arduino-cli.yaml core update-index
+          # Extract platform version from sketch.yaml
+          PLATFORM_VERSION=$(grep -oP 'platform: esp8266:esp8266 \(\K[^)]+' sketch.yaml || echo "3.1.2")
+          echo "Installing ESP8266 platform version: ${PLATFORM_VERSION}"
+          arduino-cli --config-file .vscode/arduino-cli.yaml core install "esp8266:esp8266@${PLATFORM_VERSION}"
 
-      - name: Install required libraries
-        shell: cmd
+      - name: Install required libraries from sketch.yaml
         run: |
-          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ESP_EEPROM@2.2.1"
-          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ESP Telnet@2.2.1"
-          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ESP Async TCP@2.0.0"
-          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ESP Async WebServer@3.7.1"
-          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "NTPClient@3.2.1"
-          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "ArduinoJson@7.0.4"
-          arduino-cli --config-file .vscode\arduino-cli.yaml lib install "Arduino_JSON@0.2.0"
+          # Parse libraries from sketch.yaml and install them
+          # Format: "- LibraryName (version)"
+          grep -E '^\s+-\s+.+\(.+\)' sketch.yaml | while read -r line; do
+            # Extract library name and version
+            lib_info=$(echo "$line" | sed -E 's/^\s*-\s*(.+)\s*\(([^)]+)\)\s*$/\1@\2/')
+            lib_name=$(echo "$lib_info" | cut -d'@' -f1 | sed 's/[[:space:]]*$//')
+            lib_version=$(echo "$lib_info" | cut -d'@' -f2)
+            echo "Installing library: ${lib_name}@${lib_version}"
+            arduino-cli --config-file .vscode/arduino-cli.yaml lib install "${lib_name}@${lib_version}" || \
+              arduino-cli --config-file .vscode/arduino-cli.yaml lib install "${lib_name}"
+          done
 
       - name: Build firmware
-        shell: cmd
-        run: call build.cmd
+        run: |
+          chmod +x build.sh
+          ./build.sh
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
