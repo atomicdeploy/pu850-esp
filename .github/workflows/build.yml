@@ -51,8 +51,9 @@ jobs:
       - name: Install required libraries from sketch.yaml
         run: |
           # Parse libraries from sketch.yaml and install them
-          # Format: "- LibraryName (version)"
-          grep -E '^\s+-\s+.+\(.+\)' sketch.yaml | while read -r line; do
+          # Only match lines after "libraries:" that start with "- " and have format "LibraryName (version)"
+          # Exclude lines containing "platform:" to avoid matching platform entries
+          grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+\([^)]+\)' | grep -v 'platform:' | while read -r line; do
             # Extract library name (everything before the last '(' with version)
             lib_name=$(echo "$line" | sed -E 's/^\s*-\s*(.+)\s*\([^)]+\)\s*$/\1/' | sed 's/[[:space:]]*$//')
             # Extract version (content inside the last parentheses)
