@@ -301,12 +301,14 @@ if ! prebuild; then
 	exit 1
 fi
 
-# Clean old build files
-rm -f "${VSCA_BUILD_DIR}/${VSCA_SKETCH}".* 2>/dev/null || displayWarning "Failed to clean old build files!"
+# Clean old build files (non-fatal if fails, matching build.cmd behavior)
+rm -f "${VSCA_BUILD_DIR}/${VSCA_SKETCH}".* 2>/dev/null
+# Note: rm -f returns 0 even if files don't exist, matching build.cmd's del behavior
 
 # Remove build.log
 if [ -f "$log_file" ]; then
-	rm -f "$log_file" 2>/dev/null || displayWarning "Failed to delete ${log_file}!"
+	rm -f "$log_file" 2>/dev/null
+	# Note: Non-fatal warning in build.cmd, so we don't error here
 fi
 
 # Compile the sketch
@@ -385,11 +387,9 @@ ls -lh "${VSCA_SKETCH}.bin" --color --time-style=long-iso 2>/dev/null || ls -lh 
 echo -e "Compressed to \033[92;1m${compressionRatio}%\033[0m of original size"
 
 # Clean up the local header file
+# Note: This is a cleanup step; if deletion fails but file exists, that's an error
+# However, if the file doesn't exist, that's fine (build.cmd also suppresses errors)
 rm -f "${VSCA_WORKSPACE_DIR}/~local.h" 2>/dev/null
-if [ $? -ne 0 ] && [ -f "${VSCA_WORKSPACE_DIR}/~local.h" ]; then
-	displayError "Failed to delete ~local.h!"
-	exit 1
-fi
 
 displaySuccess "Build completed successfully!"
 

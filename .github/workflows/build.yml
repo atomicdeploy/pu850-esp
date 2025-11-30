@@ -38,7 +38,13 @@ jobs:
         run: |
           arduino-cli --config-file .vscode/arduino-cli.yaml core update-index
           # Extract platform version from sketch.yaml using sed (more portable)
-          PLATFORM_VERSION=$(grep 'platform: esp8266:esp8266' sketch.yaml | sed 's/.*(\([^)]*\)).*/\1/' || echo "3.1.2")
+          # Format: "platform: esp8266:esp8266 (3.1.2)"
+          PLATFORM_VERSION=$(grep 'platform: esp8266:esp8266' sketch.yaml | sed 's/.*(\([0-9.]*\)).*/\1/' 2>/dev/null)
+          # Validate version format (should be digits and dots only)
+          if ! echo "$PLATFORM_VERSION" | grep -qE '^[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+            echo "Warning: Could not extract valid platform version, using default 3.1.2"
+            PLATFORM_VERSION="3.1.2"
+          fi
           echo "Installing ESP8266 platform version: ${PLATFORM_VERSION}"
           arduino-cli --config-file .vscode/arduino-cli.yaml core install "esp8266:esp8266@${PLATFORM_VERSION}"
 

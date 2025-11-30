@@ -36,6 +36,10 @@ cat > "$h_file" << EOF
 #define BUILD_HOSTNAME "${HOSTNAME_VAR}"
 EOF
 
+# Note: On Windows, prebuild.cmd uses 'attrib +h' to hide the file.
+# On Linux/macOS, files starting with ~ are conventionally treated as temporary/hidden.
+# No equivalent action needed as ~ prefix serves a similar purpose in Unix-like systems.
+
 # clean up old checksum file
 rm -f "${VSCA_BUILD_DIR:-./Build}/${VSCA_SKETCH:-ASA0002E.ino}.bin.md5" 2>/dev/null
 
