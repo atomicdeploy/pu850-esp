@@ -282,16 +282,18 @@ dir_name=$(basename "$VSCA_WORKSPACE_DIR")
 sketch_base="${VSCA_SKETCH%.ino}"
 expected_sketch="${dir_name}.ino"
 TEMP_RENAMED=""
+ORIGINAL_SKETCH=""
 
 if [ "$VSCA_SKETCH" != "$expected_sketch" ]; then
 	if [ "$IS_CI" = "true" ]; then
 		# In CI: temporarily rename the sketch file to match directory name
+		# We use mv to avoid duplicate .ino files which confuse arduino-cli
 		displayInfo "CI build: temporarily renaming ${VSCA_SKETCH} to ${expected_sketch}"
 		if [ -f "${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}" ]; then
-			cp "${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}" "${VSCA_WORKSPACE_DIR}/${expected_sketch}"
+			mv "${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}" "${VSCA_WORKSPACE_DIR}/${expected_sketch}"
 			TEMP_RENAMED="$expected_sketch"
-			# Update VSCA_SKETCH to use the temporary file for compilation
 			ORIGINAL_SKETCH="$VSCA_SKETCH"
+			# Update VSCA_SKETCH to use the renamed file for compilation
 			VSCA_SKETCH="$expected_sketch"
 		else
 			displayError "Sketch file not found: ${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}"
@@ -376,9 +378,9 @@ BIN_FILE="${SKETCH_BASE}.ino.bin"
 # Check if compilation succeeded
 if [ ! -f "$BIN_FILE" ]; then
 	displayError "Compilation failed!"
-	# Clean up temporary file if we created one
-	if [ -n "$TEMP_RENAMED" ]; then
-		rm -f "${VSCA_WORKSPACE_DIR}/${TEMP_RENAMED}" 2>/dev/null
+	# Restore original sketch file if we renamed it
+	if [ -n "$TEMP_RENAMED" ] && [ -n "$ORIGINAL_SKETCH" ]; then
+		mv "${VSCA_WORKSPACE_DIR}/${TEMP_RENAMED}" "${VSCA_WORKSPACE_DIR}/${ORIGINAL_SKETCH}" 2>/dev/null
 	fi
 	exit 1
 fi
@@ -437,9 +439,18 @@ echo -e "Compressed to \033[92;1m${compressionRatio}%\033[0m of original size"
 # However, if the file doesn't exist, that's fine (build.cmd also suppresses errors)
 rm -f "${VSCA_WORKSPACE_DIR}/~local.h" 2>/dev/null
 
-# Clean up temporary renamed sketch file if we created one
-if [ -n "$TEMP_RENAMED" ]; then
-	rm -f "${VSCA_WORKSPACE_DIR}/${TEMP_RENAMED}" 2>/dev/null
+# Restore original sketch file and rename output binary if we renamed during CI build
+if [ -n "$TEMP_RENAMED" ] && [ -n "$ORIGINAL_SKETCH" ]; then
+	# Restore the original sketch file
+	mv "${VSCA_WORKSPACE_DIR}/${TEMP_RENAMED}" "${VSCA_WORKSPACE_DIR}/${ORIGINAL_SKETCH}" 2>/dev/null
+	
+	# Rename output binary to use original sketch name
+	ORIGINAL_BIN_FILE="${ORIGINAL_SKETCH%.ino}.ino.bin"
+	if [ -f "$BIN_FILE" ] && [ "$BIN_FILE" != "$ORIGINAL_BIN_FILE" ]; then
+		mv "$BIN_FILE" "$ORIGINAL_BIN_FILE" 2>/dev/null
+		mv "${BIN_FILE}.md5.tmp" "${ORIGINAL_BIN_FILE}.md5.tmp" 2>/dev/null
+		BIN_FILE="$ORIGINAL_BIN_FILE"
+	fi
 fi
 
 displaySuccess "Build completed successfully!"
