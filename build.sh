@@ -389,6 +389,7 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	# Colorize FQBN line
 	if [[ "$line" =~ ^FQBN: ]]; then
 		echo -e "\033[92;1mFQBN:\033[0m${line#FQBN:}"
+		prev_line="$line"
 		continue
 	fi
 	
@@ -399,18 +400,21 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 		prefix="${line%%[^║╠╚═]*}"
 		rest="${line#$prefix}"
 		echo -e "\033[0;96m${prefix}\033[0m${rest}"
+		prev_line="$line"
 		continue
 	fi
 	
 	# Colorize lines starting with . (green bold) - memory summary lines
 	if [[ "$line" =~ ^\. ]]; then
 		echo -e "\033[92;1m${line}\033[0m"
+		prev_line="$line"
 		continue
 	fi
 	
 	# Colorize library lines (dim)
 	if [[ "$line" =~ [Ll]ibrary ]]; then
 		echo -e "\033[90m${line}\033[0m"
+		prev_line="$line"
 		continue
 	fi
 	
