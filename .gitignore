@@ -59,3 +59,13 @@ dkms.conf
 
 # debug information files
 *.dwo
+# Build artifacts
+Build/
+
+# Arduino CLI and libraries (installed during CI)
+bin/
+~/
+.arduino15/
+Arduino/
+~/.arduino15/
+~/Arduino/
