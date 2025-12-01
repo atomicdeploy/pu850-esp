@@ -340,7 +340,14 @@ build_command="arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:${bo
 eval "$build_command" 2>&1 | while IFS= read -r line; do
 	# Skip verbose/useless lines (matching PowerShell -replace '^(...)', '[A' which moves cursor up, effectively hiding)
 	# These patterns match lines that are filtered out in the build.cmd PowerShell command
-	if [[ "$line" =~ ^default_encoding: ]] || \
+	
+	# Filter lines starting with Arduino paths (tools, packages, internal) - these are verbose command lines
+	# On Windows: ~\AppData\Local\Arduino15\packages\... or ~\AppData\Local\Arduino15\internal\...
+	# On Linux: ~/.arduino15/packages/... or ~/.arduino15/staging/...
+	# Also filter lines starting with absolute paths to arduino directories
+	if [[ "$line" =~ ^\"?${HOME}/.arduino15/(packages|staging|internal)/ ]] || \
+	   [[ "$line" =~ ^\"?/.+/.arduino15/(packages|staging|internal)/ ]] || \
+	   [[ "$line" =~ ^default_encoding: ]] || \
 	   [[ "$line" =~ ^Alternatives\ for ]] || \
 	   [[ "$line" =~ ^Preferences\ override ]] || \
 	   [[ "$line" =~ ^To\ change, ]] || \
@@ -353,8 +360,9 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	   [[ "$line" =~ ^Using\ board ]] || \
 	   [[ "$line" =~ ^Using\ core ]] || \
 	   [[ "$line" =~ ^Using\ global\ include ]] || \
-	   [[ "$line" =~ ^\"~/.arduino15 ]] || \
-	   [[ "$line" =~ ResolveLibrary ]]; then
+	   [[ "$line" =~ ResolveLibrary ]] || \
+	   [[ "$line" =~ SyntaxWarning: ]] || \
+	   [[ "$line" =~ ^[[:space:]]+words\ =\ re\.split ]]; then
 		continue
 	fi
 	
