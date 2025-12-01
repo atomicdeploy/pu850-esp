@@ -69,3 +69,6 @@ Arduino/
 ~/.arduino15/
 ~/Arduino/
 ~local.h
+
+# Node.js
+node_modules/

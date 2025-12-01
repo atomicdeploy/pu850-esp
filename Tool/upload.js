@@ -8,10 +8,17 @@ import { createHash } from 'crypto'
 import chalk from 'chalk'
 import notifier from 'node-notifier'
 
+// Check for --immediate mode (upload right away without watching for changes)
+const immediateMode = process.argv.includes('--immediate') || process.argv.includes('-i')
+
 if (process.argv.includes('--help')) {
-	console.log(`${chalk.green.bold`Usage:`} ${basename(process.argv[0]).replace(/\.exe$/gi, '')} ${basename(process.argv[1])} ${chalk.yellow('filename.bin')}\n`)
+	console.log(`${chalk.green.bold`Usage:`} ${basename(process.argv[0]).replace(/\.exe$/gi, '')} ${basename(process.argv[1])} ${chalk.yellow('[options]')} ${chalk.yellow('filename.bin')}\n`)
+	console.log(`${chalk.yellow`Options:`}`)
+	console.log(`  ${chalk.cyan`--immediate, -i`}  Upload the file immediately without watching for changes`)
+	console.log(`  ${chalk.cyan`--help`}           Show this help message\n`)
 	console.log(`${chalk.yellow`You must also set the environment variable \`UPDATE_API\` to the URL of the update API.`}`)
 	console.log(`${chalk.magenta`Example:`} set UPDATE_API=http://PU850.local:80/update`)
+	console.log(`${chalk.magenta`Example:`} UPDATE_API=http://192.168.1.100/update node upload.js --immediate firmware.bin`)
 	process.exit(0)
 }
 
@@ -45,7 +52,19 @@ try {
 	process.exit(1)
 }
 
-const filePath = process.argv[2]
+// Get file path from arguments (find first non-option argument, or argument after --)
+let filePath = null
+let foundSeparator = false
+for (const arg of process.argv.slice(2)) {
+	if (arg === '--') {
+		foundSeparator = true
+		continue
+	}
+	if (foundSeparator || !arg.startsWith('-')) {
+		filePath = arg
+		break
+	}
+}
 
 if (!filePath) {
 	console.error('Please provide a file path as an argument')
@@ -59,6 +78,226 @@ if (!existsSync(filePath)) {
 
 const resolvedPath = realpathSync(filePath, { encoding: "utf8" })
 
+/**
+ * Upload firmware file - the main upload logic
+ * @param {string} filePath - Path to the firmware file
+ * @param {Object} options - Upload options
+ * @param {boolean} options.immediate - If true, skip waiting for .md5 file and don't retry on build-in-progress
+ * @param {boolean} options.skipInfoCheck - If true, skip the post-upload info verification
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function uploadFirmware(filePath, options = {}) {
+	const { immediate = false, skipInfoCheck = false } = options
+	const fileName = basename(filePath)
+
+	// Check if build is still in progress
+	if (existsSync(`${filePath}/../~local.h`) || existsSync(`${filePath}.gz`)) {
+		if (immediate) {
+			return { success: false, error: 'File is still being built' }
+		}
+		process.stdout.write(`\r\x1b[K${chalk.gray('File is still being built...')}\r`);
+		return new Promise(resolve => setTimeout(() => resolve(uploadFirmware(filePath, options)), 1000))
+	}
+
+	// In immediate mode, we don't require .md5 file but will use it if available
+	// In watch mode, we wait for .md5 file
+	if (!immediate && !existsSync(`${filePath}.md5`)) {
+		process.stdout.write(`\r\x1b[K${chalk.gray('Waiting for the MD5 file...')}\r`);
+		return new Promise(resolve => setTimeout(() => resolve(uploadFirmware(filePath, options)), 1000))
+	}
+
+	// Read and parse the contents of the `.md5` file if it exists
+	const md5List = {}
+	if (existsSync(`${filePath}.md5`)) {
+		const md5File = readFileSync(`${filePath}.md5`, { encoding: 'utf8' }).trim()
+		const md5Lines = md5File.split(/[\r\n]+/g).map(line => line.trim())
+
+		if (!md5File || md5Lines.length < 1) {
+			if (!immediate) {
+				console.error(chalk.red.bold('MD5 file is empty.'))
+				return { success: false, error: 'MD5 file is empty' }
+			}
+		} else {
+			let skip = false
+
+			md5Lines.forEach(line => {
+				line = line.replace(/\s+/g, ' ')
+
+				const index = line.indexOf(' ')
+
+				let [md5, name] = [line.substring(0, index).trim(), line.substring(index + 1).trim()]
+
+				name = basename(name.replace(/^\*/, '')) // + tag
+				md5 = md5.replace(/[\\]/gi, '')
+
+				if (md5List[name] && md5List[name] !== md5) {
+					console.error(md5List[name], md5)
+					throw new Error(`Multiple MD5 values found for "${name}"`)
+				}
+
+				md5List[name] = md5
+
+				if (process.ongoingRequest && !immediate) {
+					skip = true
+
+					// Check if there is a new file available
+					if (md5 !== process.lastUploadedMD5 && name.includes(' (compressed)')) {
+						process.stdout.write(`\r\x1b[K${chalk.gray('An ongoing request is in progress...')}\r`);
+						clearTimeout(process.ongoingTimerId)
+						process.ongoingTimerId = setTimeout(() => uploadFirmware(filePath, options), 1000)
+					}
+				}
+			})
+
+			if (skip) return { success: false, error: 'Request in progress' }
+		}
+	}
+
+	if (!immediate) {
+		process.stdout.write('\x1b[H\x1b[2J') // clear screen
+		console.info(`File "${chalk.yellow.bold(fileName)}" has been modified.`)
+	}
+
+	try {
+		const stats = statSync(filePath)
+
+		console.info('Size:', stats.size, 'bytes')
+		console.info('Time:', stats.mtime) // Last modified time
+
+		const fileData = readFileSync(filePath)
+
+		const hash = createHash('md5')
+		hash.update(fileData)
+
+		const md5 = hash.digest('hex')
+
+		console.info('MD5 Hash:', chalk.cyan(md5))
+
+		// Verify against .md5 file if available
+		if (md5List[fileName + ' (compressed)'] && md5 !== md5List[fileName + ' (compressed)']) {
+			console.error(chalk.red.bold('MD5 mismatch!'))
+			console.error('Expected:', md5List[fileName + ' (compressed)'] || 'Unknown')
+			console.error('Calculated:', md5)
+			return { success: false, error: 'MD5 mismatch' }
+		}
+
+		const formData = new FormData()
+		formData.append('MD5', md5)
+		formData.append('firmware', fileData)
+
+		process.stdout.write('Uploading file...')
+		if (!immediate) {
+			process.title = `Uploading firmware`
+			process.stdout.write(`\x1b]9;4;3;0\x07`) // Set progress to indeterminate state
+		}
+
+		process.ongoingRequest = true
+		process.lastUploadedMD5 = md5
+		process.forceExit = false
+
+		const response = await got.post(UPDATE_API, {
+			body: formData,
+			headers: {
+				...formData.getHeaders(),
+				...headers,
+			}
+		}).on('uploadProgress', (progressEvent) => {
+			if (progressEvent.transferred == 0)
+			{
+				process.stdout.write(`\r\x1b[K${chalk.gray('Upload started')}\r`)
+				return
+			}
+
+			const percentCompleted = Math.round((progressEvent.transferred / progressEvent.total) * 100)
+			process.stdout.write(`\r\x1b[K${chalk.gray(`Upload progress: ${percentCompleted}%`)}\r`)
+
+			if (progressEvent.transferred === progressEvent.total) {
+				process.stdout.write(`\r\x1b[K${chalk.gray('Upload completed!')}\r`)
+				if (!immediate) {
+					process.title = `Upload completed, waiting for response`
+				}
+			}
+		})
+
+		process.stdout.write(`\r\x1b[K`) // clear line
+
+		console.log(chalk.green.bold('Upload successful!'))
+
+		if (!immediate) {
+			process.title = `Upload successful`
+		}
+
+		if (response.body !== 'ok!') {
+			console.error(chalk.red.bold('The API response was not as expected!'))
+			console.error('Response:', response.body)
+			if (!immediate) {
+				process.title = `Update failed`
+			}
+			return { success: false, error: 'Unexpected API response' }
+		}
+
+		process.expectedFirmwareHash = md5List[fileName]
+
+		if (!immediate && !skipInfoCheck) {
+			await displayInformation(2000)
+		}
+
+		process.ongoingRequest = false
+		return { success: true }
+
+	} catch (error) {
+		process.stdout.write(`\x1b]9;4;0;0\x07`) // clear progress
+		process.stdout.write(`\r\x1b[K`) // clear line
+
+		if (!immediate) {
+			process.title = `Upload failed`
+			// Only send notification if not in test/CI environment
+			if (!process.env.NO_NOTIFIER && !process.env.CI) {
+				notifier.notify({ title: '❌ Error while uploading firmware', message: error?.message || `See console for details`, sound: true, icon: 'None' })
+			}
+		}
+
+		if (error.response && error.response.headers['content-type']?.includes('text/plain')) {
+			console.error('❌ Received an error with status code:', error.response.statusCode)
+			console.error(chalk.red.bold(error.response.body || error.response.statusMessage))
+		} else if (error.message) {
+			console.error(chalk.red.bold`❌ Error`, error.message)
+		} else {
+			console.error(chalk.red.bold`❌ Error`)
+			console.error(error)
+		}
+
+		process.ongoingRequest = false
+		return { success: false, error: error.message || 'Upload failed' }
+	}
+}
+
+// Wrapper for watch mode - calls uploadFirmware with watch-mode options
+async function onModified(filePath) {
+	await uploadFirmware(filePath, { immediate: false, skipInfoCheck: false })
+}
+
+// Immediate mode: upload right away and exit
+if (immediateMode) {
+	console.info(chalk.cyan`Immediate mode: uploading file directly`)
+	console.info(chalk.bold(resolvedPath))
+	
+	try {
+		const result = await uploadFirmware(filePath, { immediate: true, skipInfoCheck: true })
+		if (result.success) {
+			console.log(chalk.green.bold('✅ Upload completed successfully!'))
+			process.exit(0)
+		} else {
+			console.error(chalk.red.bold('❌ Upload failed:'), result.error || 'Unknown error')
+			process.exit(1)
+		}
+	} catch (error) {
+		console.error(chalk.red.bold('❌ Error during upload:'), error.message || error)
+		process.exit(1)
+	}
+}
+
+// Watch mode (default behavior)
 const watcher = watch(filePath)
 
 process.stdout.write('\x1b[H\x1b[2J') // clear screen
@@ -101,7 +340,9 @@ watcher.on('error', (error) => {
 	console.error(chalk.bold.red('An error occurred while watching the file:'))
 	console.error(error)
 	process.title = `Error watching file`
-	notifier.notify({ title: '❌ Error watching for file changes on:', message: `${resolvedPath}`, sound: true, icon: 'None' })
+	if (!process.env.NO_NOTIFIER && !process.env.CI) {
+		notifier.notify({ title: '❌ Error watching for file changes on:', message: `${resolvedPath}`, sound: true, icon: 'None' })
+	}
 })
 
 // On shutdown, close the watcher
@@ -125,165 +366,6 @@ process.on('SIGINT', () => {
 		process.exit(1);
 	});
 });
-
-async function onModified(filePath) {
-	const fileName = basename(filePath)
-
-	if (existsSync(`${filePath}/../~local.h`) || existsSync(`${filePath}.gz`)) {
-		process.stdout.write(`\r\x1b[K${chalk.gray('File is still being built...')}\r`);
-		return setTimeout(onModified.bind(onModified, filePath), 1000)
-	}
-
-	if (!existsSync(`${filePath}.md5`)) {
-		process.stdout.write(`\r\x1b[K${chalk.gray('Waiting for the MD5 file...')}\r`);
-		return setTimeout(onModified.bind(onModified, filePath), 1000)
-	}
-
-	// Read and parse the contents of the `.md5` which is the output of the `md5sum` command
-	const md5File = readFileSync(`${filePath}.md5`, { encoding: 'utf8' }).trim(),
-		md5Lines = md5File.split(/[\r\n]+/g).map(line => line.trim()),
-		md5List = {}
-
-	if (!md5File || md5Lines.length < 1)
-		return console.error(chalk.red.bold('MD5 file is empty.'))
-
-	let skip = false
-
-	md5Lines.forEach(line => {
-		line = line.replace(/\s+/g, ' ')
-
-		const index = line.indexOf(' ')
-
-		let [md5, name] = [line.substring(0, index).trim(), line.substring(index + 1).trim()]
-
-		name = basename(name.replace(/^\*/, '')) // + tag
-		md5 = md5.replace(/[\\]/gi, '')
-
-		if (md5List[name] && md5List[name] !== md5) {
-			console.error(md5List[name], md5)
-			throw new Error(`Multiple MD5 values found for "${name}"`)
-		}
-
-		md5List[name] = md5
-
-		if (process.ongoingRequest) {
-			skip = true
-
-			// Check if the there is a new file available
-			if (md5 !== process.lastUploadedMD5 && name.includes(' (compressed)')) {
-				process.stdout.write(`\r\x1b[K${chalk.gray('An ongoing request is in progress...')}\r`);
-				clearTimeout(process.ongoingTimerId)
-				process.ongoingTimerId = setTimeout(onModified.bind(onModified, filePath), 1000)
-			}
-		}
-	})
-
-	if (skip) return
-
-	process.stdout.write('\x1b[H\x1b[2J') // clear screen
-
-	console.info(`File "${chalk.yellow.bold(fileName)}" has been modified.`)
-
-	try {
-		const stats = statSync(filePath)
-
-		console.info('Size:', stats.size, 'bytes')
-		console.info('Time:', stats.mtime) // Last modified time, .toLocaleString()
-
-		const fileData = readFileSync(filePath)
-
-		const hash = createHash('md5')
-		hash.update(fileData)
-
-		const md5 = hash.digest('hex')
-
-		console.info('MD5 Hash:', chalk.cyan(md5))
-
-		let mismatch = false
-
-		if (md5 !== md5List[fileName + ' (compressed)']) {
-			console.error(chalk.red.bold('MD5 mismatch!'))
-			console.error('Expected:', md5List[fileName + ' (compressed)'] || 'Unknown')
-			console.error('Calculated:', md5)
-			mismatch = true
-		}
-
-		if (mismatch) return
-
-		const formData = new FormData()
-		formData.append('MD5', md5)
-		formData.append('firmware', fileData)
-
-		process.stdout.write('Uploading file...')
-		process.title = `Uploading firmware`
-
-		process.stdout.write(`\x1b]9;4;3;0\x07`) // Set progress to indeterminate state
-
-		process.ongoingRequest = true
-		process.lastUploadedMD5 = md5
-
-		process.forceExit = false
-
-		const response = await got.post(UPDATE_API, {
-			body: formData,
-			headers: {
-				...formData.getHeaders(),
-				...headers,
-			}
-		}).on('uploadProgress', (progressEvent) => {
-			if (progressEvent.transferred == 0)
-			{
-				process.stdout.write(`\r\x1b[K${chalk.gray('Upload started')}\r`)
-				return
-			}
-
-			const percentCompleted = Math.round((progressEvent.transferred / progressEvent.total) * 100)
-			process.stdout.write(`\r\x1b[K${chalk.gray(`Upload progress: ${percentCompleted}%`)}\r`)
-
-			if (progressEvent.transferred === progressEvent.total) {
-				process.stdout.write(`\r\x1b[K${chalk.gray('Upload completed!')}\r`)
-				process.title = `Upload completed, waiting for response`
-			}
-		})
-
-		process.stdout.write(`\r\x1b[K`) // clear line
-
-		console.log(chalk.green.bold('Upload successful!'))
-
-		process.title = `Upload successful`
-
-		if (response.body !== 'ok!') {
-			console.error(chalk.red.bold('The API response was not as expected!'))
-			console.error('Response:', response.body)
-			process.title = `Update failed`
-			return
-		}
-
-		process.expectedFirmwareHash = md5List[fileName]
-
-		await displayInformation(2000)
-
-	} catch (error) {
-		process.stdout.write(`\x1b]9;4;0;0\x07`) // clear progress
-
-		process.stdout.write(`\r\x1b[K`) // clear line
-
-		process.title = `Upload failed`
-		notifier.notify({ title: '❌ Error while uploading firmware', message: error?.message || `See console for details`, sound: true, icon: 'None' })
-
-		if (error.response && error.response.headers['content-type']?.includes('text/plain')) {
-			console.error('❌ Received an error with status code:', error.response.statusCode)
-			console.error(chalk.red.bold(error.response.body || error.response.statusMessage))
-		} else if (error.message) {
-			console.error(chalk.red.bold`❌ Error`, error.message)
-		} else {
-			console.error(chalk.red.bold`❌ Error`)
-			console.error(error)
-		}
-	}
-
-	process.ongoingRequest = false
-}
 
 async function displayInformation(waitInitial = 2000) {
 	process.stdout.write(`\r\x1b[K${chalk.gray(`Getting information...`)}`)
@@ -370,7 +452,9 @@ async function displayInformation(waitInitial = 2000) {
 			console.error('Expected:', process.expectedFirmwareHash || 'Unknown')
 			console.error('Received:', info['firmware hash'])
 			process.title = `❌ Firmware hash mismatch ${basename(filePath)}`
-			notifier.notify({ title: '❌ Firmware hash mismatch', message: ('Expected: ' + process.expectedFirmwareHash || 'Unknown') + "\n" + ('Received: ' + info['firmware hash']), sound: true, icon: 'None' })
+			if (!process.env.NO_NOTIFIER && !process.env.CI) {
+				notifier.notify({ title: '❌ Firmware hash mismatch', message: ('Expected: ' + process.expectedFirmwareHash || 'Unknown') + "\n" + ('Received: ' + info['firmware hash']), sound: true, icon: 'None' })
+			}
 			return
 		}
 
@@ -390,7 +474,9 @@ async function displayInformation(waitInitial = 2000) {
 
 		console.log(chalk.green.bold.inverse('✅ Firmware hash matches'))
 		process.title = `✅ Firmware ${basename(filePath)} uploaded`
-		notifier.notify({ title: '✅ Firmware successfully updated', message: message.trim(), sound: false, icon: 'None' })
+		if (!process.env.NO_NOTIFIER && !process.env.CI) {
+			notifier.notify({ title: '✅ Firmware successfully updated', message: message.trim(), sound: false, icon: 'None' })
+		}
 	} catch (error) {
 		process.stdout.write(`\r\x1b[K`) // clear line
 		console.error(chalk.red.bold`Error fetching information:`, error.message)
