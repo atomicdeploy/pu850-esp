@@ -251,7 +251,10 @@ async function uploadFirmware(filePath, options = {}) {
 
 		if (!immediate) {
 			process.title = `Upload failed`
-			notifier.notify({ title: '❌ Error while uploading firmware', message: error?.message || `See console for details`, sound: true, icon: 'None' })
+			// Only send notification if not in test/CI environment
+			if (!process.env.NO_NOTIFIER && !process.env.CI) {
+				notifier.notify({ title: '❌ Error while uploading firmware', message: error?.message || `See console for details`, sound: true, icon: 'None' })
+			}
 		}
 
 		if (error.response && error.response.headers['content-type']?.includes('text/plain')) {
@@ -337,7 +340,9 @@ watcher.on('error', (error) => {
 	console.error(chalk.bold.red('An error occurred while watching the file:'))
 	console.error(error)
 	process.title = `Error watching file`
-	notifier.notify({ title: '❌ Error watching for file changes on:', message: `${resolvedPath}`, sound: true, icon: 'None' })
+	if (!process.env.NO_NOTIFIER && !process.env.CI) {
+		notifier.notify({ title: '❌ Error watching for file changes on:', message: `${resolvedPath}`, sound: true, icon: 'None' })
+	}
 })
 
 // On shutdown, close the watcher
@@ -447,7 +452,9 @@ async function displayInformation(waitInitial = 2000) {
 			console.error('Expected:', process.expectedFirmwareHash || 'Unknown')
 			console.error('Received:', info['firmware hash'])
 			process.title = `❌ Firmware hash mismatch ${basename(filePath)}`
-			notifier.notify({ title: '❌ Firmware hash mismatch', message: ('Expected: ' + process.expectedFirmwareHash || 'Unknown') + "\n" + ('Received: ' + info['firmware hash']), sound: true, icon: 'None' })
+			if (!process.env.NO_NOTIFIER && !process.env.CI) {
+				notifier.notify({ title: '❌ Firmware hash mismatch', message: ('Expected: ' + process.expectedFirmwareHash || 'Unknown') + "\n" + ('Received: ' + info['firmware hash']), sound: true, icon: 'None' })
+			}
 			return
 		}
 
@@ -467,7 +474,9 @@ async function displayInformation(waitInitial = 2000) {
 
 		console.log(chalk.green.bold.inverse('✅ Firmware hash matches'))
 		process.title = `✅ Firmware ${basename(filePath)} uploaded`
-		notifier.notify({ title: '✅ Firmware successfully updated', message: message.trim(), sound: false, icon: 'None' })
+		if (!process.env.NO_NOTIFIER && !process.env.CI) {
+			notifier.notify({ title: '✅ Firmware successfully updated', message: message.trim(), sound: false, icon: 'None' })
+		}
 	} catch (error) {
 		process.stdout.write(`\r\x1b[K`) // clear line
 		console.error(chalk.red.bold`Error fetching information:`, error.message)

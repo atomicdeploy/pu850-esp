@@ -19,6 +19,18 @@ cd "$SCRIPT_DIR"
 SKETCH_YAML="sketch.yaml"
 CHECK_ONLY=false
 
+# Temporary files (set early so cleanup trap can use them)
+UPDATES_FILE=""
+LIBRARY_INDEX_CACHE=""
+
+# Cleanup function
+cleanup() {
+    rm -f "$UPDATES_FILE" "$LIBRARY_INDEX_CACHE" 2>/dev/null || true
+}
+
+# Set trap to cleanup on exit (normal or error)
+trap cleanup EXIT
+
 # Colors for output
 RED='\033[91;1m'
 GREEN='\033[92;1m'
@@ -158,15 +170,38 @@ else
     displaySuccess "Platform esp8266:esp8266: $current_platform (up to date)"
 fi
 
+# Check if sort -V is available (GNU sort with version comparison)
+SORT_V_AVAILABLE=false
+if printf '1.2.3\n1.10.0' | sort -V >/dev/null 2>&1; then
+    SORT_V_AVAILABLE=true
+fi
+
 # Function to compare semantic versions (returns 0 if v1 >= v2, 1 otherwise)
 version_gte() {
     local v1="$1"
     local v2="$2"
-    # Use sort -V to compare versions
-    if [ "$(printf '%s\n%s' "$v1" "$v2" | sort -V | head -1)" = "$v2" ]; then
-        return 0  # v1 >= v2
+    
+    if [ "$SORT_V_AVAILABLE" = true ]; then
+        # Use sort -V if available (GNU sort)
+        if [ "$(printf '%s\n%s' "$v1" "$v2" | sort -V | head -1)" = "$v2" ]; then
+            return 0  # v1 >= v2
+        else
+            return 1  # v1 < v2
+        fi
     else
-        return 1  # v1 < v2
+        # Fallback: use Python for version comparison
+        python3 -c "
+from packaging.version import Version
+import sys
+try:
+    v1 = Version('$v1')
+    v2 = Version('$v2')
+    sys.exit(0 if v1 >= v2 else 1)
+except:
+    # Simple string comparison fallback
+    sys.exit(0 if '$v1' >= '$v2' else 1)
+" 2>/dev/null
+        return $?
     fi
 }
 
@@ -225,7 +260,6 @@ else
     echo "UPDATES_AVAILABLE=false"
 fi
 
-# Cleanup
-rm -f "$UPDATES_FILE" "$LIBRARY_INDEX_CACHE"
+# Cleanup is handled by the EXIT trap
 
 exit 0

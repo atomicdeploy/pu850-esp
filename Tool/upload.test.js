@@ -157,17 +157,21 @@ function runUploadTool() {
             process.stderr.write(data)
         })
         
-        uploadProcess.on('close', code => {
-            resolve({ code, stdout, stderr })
-        })
-        
-        uploadProcess.on('error', reject)
-        
         // Timeout after 30 seconds
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             uploadProcess.kill()
             reject(new Error('Upload tool timed out'))
         }, 30000)
+        
+        uploadProcess.on('close', code => {
+            clearTimeout(timeoutId)
+            resolve({ code, stdout, stderr })
+        })
+        
+        uploadProcess.on('error', err => {
+            clearTimeout(timeoutId)
+            reject(err)
+        })
     })
 }
 
