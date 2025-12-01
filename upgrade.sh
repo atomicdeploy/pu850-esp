@@ -62,13 +62,13 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         --help)
-            echo ""
+            echo -e "\033[0m"
             echo -e "${YELLOW}Usage: $(basename "$0") [options]${RESET}"
-            echo ""
+            echo -e "\033[0m"
             echo -e "${YELLOW}Options:${RESET}"
             echo -e "  ${GREEN}--check${RESET}    Only check for updates, don't modify files"
             echo -e "  ${GREEN}--help${RESET}     Display this help message"
-            echo ""
+            echo -e "\033[0m"
             exit 0
             ;;
         *)
@@ -248,15 +248,15 @@ if [ "$HAS_UPDATES" = true ] && [ "$CHECK_ONLY" = false ]; then
     displaySuccess "All updates applied to $SKETCH_YAML"
     
     # Output for CI use
-    echo ""
+    echo -e "\033[0m"
     echo "UPDATES_APPLIED=true"
 elif [ "$HAS_UPDATES" = true ]; then
     displayWarning "Updates available but not applied (--check mode)"
-    echo ""
+    echo -e "\033[0m"
     echo "UPDATES_AVAILABLE=true"
 else
     displaySuccess "All dependencies are up to date!"
-    echo ""
+    echo -e "\033[0m"
     echo "UPDATES_AVAILABLE=false"
 fi
 

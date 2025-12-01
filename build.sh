@@ -48,25 +48,26 @@ board_params="xtal=80,vt=flash,exception=disabled,stacksmash=disabled,ssl=basic,
 
 displayError() {
 	# Display an error message in red
-	echo ""
+	# Note: Use ANSI reset code on blank line to prevent GitHub Actions from collapsing it
+	echo -e "\033[0m"
 	echo -e "\033[91;1m[ERROR]\033[0m $1"
 }
 
 displayWarning() {
 	# Display a warning message in yellow
-	echo ""
+	echo -e "\033[0m"
 	echo -e "\033[93;1m[WARNING]\033[0m $1"
 }
 
 displayInfo() {
 	# Display an information message in cyan
-	echo ""
+	echo -e "\033[0m"
 	echo -e "\033[96;1m[INFO]\033[0m $1"
 }
 
 displaySuccess() {
 	# Display a success message in green
-	echo ""
+	echo -e "\033[0m"
 	echo -e "\033[92;1m[SUCCESS]\033[0m $1"
 }
 
@@ -194,19 +195,19 @@ parseArgs() {
 	while [ $# -gt 0 ]; do
 		case "$1" in
 			--help)
-				echo ""
+				echo -e "\033[0m"
 				echo -e "\033[93;1mUsage: ${build_script} [options]\033[0m"
-				echo ""
+				echo -e "\033[0m"
 				echo -e "\033[93;1mOptions:\033[0m"
 				echo -e "\033[92;1m  --help\033[0m                Display this help message"
-				echo ""
+				echo -e "\033[0m"
 				echo -e "\033[92;1m  --debug-tools\033[0m         Enable ASA debug tools for dumping variables using web server"
 				echo -e "\033[92;1m  --debug-on-serial\033[0m     Prints ESP debug messages on serial"
 				echo -e "\033[92;1m  --shell-on-serial\033[0m     Enable shell on serial instead of PU850"
-				echo ""
+				echo -e "\033[0m"
 				echo -e "\033[92;1m  --dump-profile\033[0m        Dump the Arduino build profile"
 				echo -e "\033[92;1m  --profile [profile]\033[0m   Use the specified Arduino build profile"
-				echo ""
+				echo -e "\033[0m"
 				exit 1
 				;;
 			--debug-tools)
@@ -420,9 +421,10 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	
 	# Colorize lines ending with ... (compilation steps)
 	# Add a newline before the section header for visual separation (if not already blank)
+	# Note: Use a reset ANSI code on the blank line to prevent GitHub Actions from collapsing it
 	if [[ "$line" =~ \.\.\.$ ]]; then
 		if [[ -n "$prev_line" ]]; then
-			echo ""
+			echo -e "\033[0m"
 		fi
 		echo -e "\033[92;1m>> \033[93;1m${line%...}\033[0m"
 		prev_line=">>..."
@@ -454,7 +456,7 @@ size=$(stat -c%s "$BIN_FILE" 2>/dev/null || stat -f%z "$BIN_FILE" 2>/dev/null)
 totalUsage=$((100 * size / (flashSize * 1048576)))
 
 # Display the program size and flash usage
-echo ""
+echo -e "\033[0m"
 echo -e "\033[92;1mProgram Size:\033[0m ${size} bytes (\033[95;1m${totalUsage}%\033[0m of flash used)"
 
 # Calculate the MD5 checksum of the raw binary file (uncompressed)
@@ -493,7 +495,7 @@ compressedSize=$(stat -c%s "$BIN_FILE" 2>/dev/null || stat -f%z "$BIN_FILE" 2>/d
 compressionRatio=$((compressedSize * 100 / size))
 
 # Display file sizes
-echo ""
+echo -e "\033[0m"
 ls -lh "$BIN_FILE" --color --time-style=long-iso 2>/dev/null || ls -lh "$BIN_FILE"
 
 echo -e "Compressed to \033[92;1m${compressionRatio}%\033[0m of original size"
@@ -506,7 +508,7 @@ rm -f "${VSCA_WORKSPACE_DIR}/~local.h" 2>/dev/null
 displaySuccess "Build completed successfully!"
 
 # Display the MD5 checksum of the binary file (with colors)
-echo ""
+echo -e "\033[0m"
 sed -E \
 	-e "s/([a-f0-9]{32})/\x1b[32m\1\x1b[0m/" \
 	-e "s/(\*\S+)/\x1b[33m\1\x1b[0m/" \
@@ -523,7 +525,7 @@ popd > /dev/null
 
 # Record end time and display elapsed time
 end_time=$(date +%s.%N)
-echo ""
+echo -e "\033[0m"
 elapsedTime "$start_time" "$end_time"
 
 exit 0
