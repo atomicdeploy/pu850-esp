@@ -72,3 +72,4 @@ Arduino/
 
 # Node.js
 node_modules/
+_codeql_detected_source_root

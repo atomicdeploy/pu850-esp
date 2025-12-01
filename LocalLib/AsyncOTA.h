@@ -1,5 +1,12 @@
-#ifndef AsyncOTA_h
-#define AsyncOTA_h
+#pragma once
+
+/**
+ * @file AsyncOTA.h
+ * @brief Asynchronous Over-The-Air (OTA) firmware update handler
+ *
+ * Provides web-based firmware update functionality using the async web server.
+ * Supports both firmware and filesystem updates with progress reporting.
+ */
 
 #include "Arduino.h"
 #include "stdlib_noniso.h"
@@ -23,5 +30,3 @@ private:
 };
 
 extern AsyncOtaClass AsyncOTA;
-
-#endif
