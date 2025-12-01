@@ -1,6 +1,3 @@
-# Build
-[Bb]uild
-
 # Logs
 *.log
 
@@ -59,8 +56,10 @@ dkms.conf
 
 # debug information files
 *.dwo
+
 # Build artifacts
 Build/
+build/
 
 # Arduino CLI and libraries (installed during CI)
 bin/
