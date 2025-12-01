@@ -1,5 +1,14 @@
 #pragma once
 
+/**
+ * @file MNDP.h
+ * @brief MikroTik Neighbor Discovery Protocol (MNDP) implementation
+ *
+ * Implements MNDP for device discovery on local networks.
+ * Allows the device to be discovered by MikroTik routers and
+ * network management tools like Winbox.
+ */
+
 #include "../ASA0002E.h"
 
 #include <ESP8266WiFi.h>

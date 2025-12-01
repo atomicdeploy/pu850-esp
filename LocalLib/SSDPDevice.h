@@ -1,5 +1,4 @@
-#ifndef SSDPDEVICE_H
-#define SSDPDEVICE_H
+#pragma once
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -236,5 +235,3 @@ protected:
 };
 
 extern SSDPDeviceClass SSDPDevice;
-
-#endif

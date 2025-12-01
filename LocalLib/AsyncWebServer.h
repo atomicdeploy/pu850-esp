@@ -1,5 +1,13 @@
 #pragma once
 
+/**
+ * @file AsyncWebServer.h
+ * @brief HTTP web server and WebSocket configuration
+ *
+ * Defines the async web server instance, WebSocket endpoint,
+ * and related configuration constants.
+ */
+
 #include "../ASA0002E.h"
 #include "../defines.h"
 

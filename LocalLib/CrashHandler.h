@@ -1,5 +1,13 @@
 #pragma once
 
+/**
+ * @file CrashHandler.h
+ * @brief Crash and exception handling utilities
+ *
+ * Provides crash handling and debugging support for the ESP8266.
+ * NO_CUT_HERE prevents the postmortem crash analysis from being cut off.
+ */
+
 #include "../ASA0002E.h"
 
 #define NO_CUT_HERE

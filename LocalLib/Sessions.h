@@ -1,5 +1,13 @@
 #pragma once
 
+/**
+ * @file Sessions.h
+ * @brief Session management structures and functions
+ *
+ * Manages user authentication sessions for the web interface,
+ * including token-based authentication and access level tracking.
+ */
+
 const int MAX_SESSIONS = 8;
 
 const int TOKEN_LENGTH = 32; // 16 bytes, 32 characters
