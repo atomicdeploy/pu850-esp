@@ -373,22 +373,32 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	line="${line//sketch/project}"
 	# Simplify paths - use sed for reliable path substitution
 	# Replace build directory with "Build"
-	line=$(echo "$line" | sed "s|${VSCA_BUILD_DIR}|Build|g")
+	line=$(echo "$line" | sed "s#${VSCA_BUILD_DIR}#Build#g")
 	# Replace workspace directory with empty (for relative paths)
-	line=$(echo "$line" | sed "s|${VSCA_WORKSPACE_DIR}||g")
-	# Replace home directory with ~
-	line=$(echo "$line" | sed "s|${HOME}|~|g")
-	# Remove Arduino paths clutter
-	# Remove ~/.arduino15/packages/esp8266/.../version/... paths
-	line=$(echo "$line" | sed -E 's|~/.arduino15/packages/[^/]+/[^/]+/[^/]+/[^/]+/||g')
+	# Also handle case where VSCA_WORKSPACE_DIR leaves a leading slash
+	line=$(echo "$line" | sed "s#${VSCA_WORKSPACE_DIR}/##g")
+	line=$(echo "$line" | sed "s#${VSCA_WORKSPACE_DIR}##g")
+	# Remove Arduino library and bootloader paths (including home directory prefix)
+	# This matches the PowerShell: ~[\\\/](Documents[\\\/]Arduino|...)[\\\/](libraries|bootloaders)[\\\/]
+	line=$(echo "$line" | sed -E "s#${HOME}/(Documents/Arduino|\.arduino15/packages/esp8266/hardware/esp8266/[0-9.]+)/(libraries|bootloaders)/##g")
+	line=$(echo "$line" | sed -E 's#/home/[^/]+/(Documents/Arduino|\.arduino15/packages/esp8266/hardware/esp8266/[0-9.]+)/(libraries|bootloaders)/##g')
+	# Remove Arduino paths clutter for other cases
+	# Remove ~/.arduino15/packages/esp8266/.../version/... paths (for tools)
+	line=$(echo "$line" | sed -E "s#${HOME}/\.arduino15/packages/[^/]+/[^/]+/[^/]+/[^/]+/##g")
+	line=$(echo "$line" | sed -E 's#/home/[^/]+/\.arduino15/packages/[^/]+/[^/]+/[^/]+/[^/]+/##g')
 	# Remove ~/Arduino/libraries/ paths
-	line=$(echo "$line" | sed 's|~/Arduino/libraries/||g')
-	line=$(echo "$line" | sed 's|~/Documents/Arduino/libraries/||g')
+	line=$(echo "$line" | sed -E "s#${HOME}/Arduino/libraries/##g")
+	line=$(echo "$line" | sed -E "s#${HOME}/Documents/Arduino/libraries/##g")
+	# Replace home directory with ~ for remaining paths
+	line=$(echo "$line" | sed "s#${HOME}#~#g")
+	# Clean up any double slashes or leading slashes that may be left
+	line=$(echo "$line" | sed 's#//#/#g')
 	# Replace -> with arrow (with leading spaces preserved, 2 spaces before arrow)
 	line=$(echo "$line" | sed 's/  ->/  →/g')
 	
-	# Colorize FQBN line
+	# Colorize FQBN line - add a blank line before it for separation from [INFO] Building...
 	if [[ "$line" =~ ^FQBN: ]]; then
+		echo -e "\033[0m"
 		echo -e "\033[92;1mFQBN:\033[0m${line#FQBN:}"
 		prev_line="$line"
 		continue
