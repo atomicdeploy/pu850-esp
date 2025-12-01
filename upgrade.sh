@@ -162,7 +162,7 @@ version_gte() {
 
 # Check library versions
 displayInfo "Checking library versions..."
-extract_libraries | while IFS='|' read -r lib_name lib_version; do
+while IFS='|' read -r lib_name lib_version; do
     latest=$(get_latest_library_version "$lib_name")
     if [ -n "$latest" ] && [ "$lib_version" != "$latest" ]; then
         # Only upgrade, never downgrade (in case current version is from a different source/fork)
@@ -175,7 +175,7 @@ extract_libraries | while IFS='|' read -r lib_name lib_version; do
     else
         displaySuccess "Library $lib_name: $lib_version (up to date)"
     fi
-done
+done < <(extract_libraries)
 
 # Check if there are updates
 if [ -s "$UPDATES_FILE" ]; then

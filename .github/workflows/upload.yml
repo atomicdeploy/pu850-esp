@@ -1,5 +1,15 @@
 name: Upload Firmware
 
+# This workflow uploads firmware to a device using the UPDATE_API endpoint.
+# 
+# Required configuration:
+# - Secret: UPDATE_API - The URL of the device's update API (e.g., http://192.168.1.100/update)
+# - Variable: ENABLE_AUTO_UPLOAD - Set to 'true' to enable automatic uploads after builds
+#
+# The workflow is triggered:
+# 1. Automatically after a successful Build workflow (if ENABLE_AUTO_UPLOAD is 'true')
+# 2. Manually via workflow_dispatch (can specify a specific build run ID)
+
 on:
   # Trigger after successful build workflow
   workflow_run:
@@ -17,18 +27,65 @@ on:
         description: 'Build workflow run ID (optional, uses latest successful if not provided)'
         required: false
         type: string
+      wait_for_build:
+        description: 'Wait for any in-progress build to complete'
+        required: false
+        default: 'true'
+        type: boolean
 
 permissions:
   contents: read
   actions: read
 
 jobs:
+  # Wait for any in-progress builds to complete (manual trigger only)
+  wait-for-build:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.wait_for_build == 'true'
+    outputs:
+      build_completed: ${{ steps.wait.outputs.completed }}
+    steps:
+      - name: Wait for in-progress builds
+        id: wait
+        run: |
+          echo "Checking for in-progress builds..."
+          MAX_WAIT=300  # 5 minutes max
+          WAITED=0
+          
+          while [ $WAITED -lt $MAX_WAIT ]; do
+            IN_PROGRESS=$(gh api repos/${{ github.repository }}/actions/workflows/build.yml/runs \
+              --jq '[.workflow_runs[] | select(.status == "in_progress" or .status == "queued")] | length')
+            
+            if [ "$IN_PROGRESS" = "0" ]; then
+              echo "No in-progress builds found."
+              echo "completed=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            echo "Found $IN_PROGRESS in-progress build(s). Waiting 10 seconds..."
+            sleep 10
+            WAITED=$((WAITED + 10))
+          done
+          
+          echo "Timeout waiting for builds to complete."
+          echo "completed=false" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   upload:
     runs-on: ubuntu-latest
-    # Only run if UPDATE_API secret is set and build was successful
+    needs: [wait-for-build]
+    # Run if:
+    # - Manual trigger with wait completed, OR
+    # - Manual trigger without wait, OR  
+    # - Workflow run trigger with successful build
+    # AND ENABLE_AUTO_UPLOAD is true
     if: |
-      (github.event_name == 'workflow_dispatch' || 
-       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')) &&
+      always() &&
+      (
+        (github.event_name == 'workflow_dispatch' && (github.event.inputs.wait_for_build != 'true' || needs.wait-for-build.outputs.build_completed == 'true')) ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      ) &&
       vars.ENABLE_AUTO_UPLOAD == 'true'
 
     steps:
@@ -52,17 +109,21 @@ jobs:
         id: get_run_id
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.run_id }}" ]; then
+            echo "Using provided run ID: ${{ github.event.inputs.run_id }}"
             echo "run_id=${{ github.event.inputs.run_id }}" >> $GITHUB_OUTPUT
           elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "Using workflow run ID: ${{ github.event.workflow_run.id }}"
             echo "run_id=${{ github.event.workflow_run.id }}" >> $GITHUB_OUTPUT
           else
             # Find the latest successful build workflow run
+            echo "Finding latest successful build..."
             RUN_ID=$(gh api repos/${{ github.repository }}/actions/workflows/build.yml/runs \
               --jq '.workflow_runs | map(select(.conclusion == "success")) | .[0].id')
             if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
               echo "No successful build workflow run found"
               exit 1
             fi
+            echo "Found run ID: $RUN_ID"
             echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
           fi
         env:
@@ -117,6 +178,10 @@ jobs:
           if [ "${{ steps.check_secret.outputs.skip }}" = "true" ]; then
             echo "### ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
             echo "Upload was skipped because UPDATE_API secret is not set." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To enable uploads:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Add a repository secret named \`UPDATE_API\` with the device's update URL" >> $GITHUB_STEP_SUMMARY
+            echo "2. Add a repository variable named \`ENABLE_AUTO_UPLOAD\` set to \`true\`" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ job.status }}" = "success" ]; then
             echo "### ✅ Firmware Uploaded" >> $GITHUB_STEP_SUMMARY
             echo "Firmware was successfully uploaded to the device." >> $GITHUB_STEP_SUMMARY
