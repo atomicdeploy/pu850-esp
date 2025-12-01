@@ -360,9 +360,7 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	   [[ "$line" =~ ^Using\ board ]] || \
 	   [[ "$line" =~ ^Using\ core ]] || \
 	   [[ "$line" =~ ^Using\ global\ include ]] || \
-	   [[ "$line" =~ ResolveLibrary ]] || \
-	   [[ "$line" =~ SyntaxWarning: ]] || \
-	   [[ "$line" =~ ^[[:space:]]+words\ =\ re\.split ]]; then
+	   [[ "$line" =~ ResolveLibrary ]]; then
 		continue
 	fi
 	
