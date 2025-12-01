@@ -337,6 +337,7 @@ fi
 build_command="arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:${board_params} --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags=--no_cache_core --build-property build.opt.flags= --build-property build.extra_flags=\"-Wall ${build_flags}\" --build-path \"${VSCA_BUILD_DIR}\" --libraries \"${VSCA_WORKSPACE_DIR}/LocalLib\" --jobs 0 --log-level trace --log-file \"${log_file}\" ${arduino_cli_flags} \"${VSCA_WORKSPACE_DIR}\""
 
 # Execute the build command with output filtering similar to PowerShell version
+prev_line=""
 eval "$build_command" 2>&1 | while IFS= read -r line; do
 	# Skip verbose/useless lines (matching PowerShell -replace '^(...)', '[A' which moves cursor up, effectively hiding)
 	# These patterns match lines that are filtered out in the build.cmd PowerShell command
@@ -360,7 +361,9 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	   [[ "$line" =~ ^Using\ board ]] || \
 	   [[ "$line" =~ ^Using\ core ]] || \
 	   [[ "$line" =~ ^Using\ global\ include ]] || \
-	   [[ "$line" =~ ResolveLibrary ]]; then
+	   [[ "$line" =~ SyntaxWarning: ]] || \
+	   [[ "$line" =~ ^\ +.*re\.split ]] || \
+	   [[ "$line" =~ ^[[:space:]]+[\^]+$ ]]; then
 		continue
 	fi
 	
@@ -380,8 +383,8 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	# Remove ~/Arduino/libraries/ paths
 	line=$(echo "$line" | sed 's|~/Arduino/libraries/||g')
 	line=$(echo "$line" | sed 's|~/Documents/Arduino/libraries/||g')
-	# Replace -> with arrow
-	line="${line//->/→}"
+	# Replace -> with arrow (with leading spaces preserved, 2 spaces before arrow)
+	line=$(echo "$line" | sed 's/  ->/  →/g')
 	
 	# Colorize FQBN line
 	if [[ "$line" =~ ^FQBN: ]]; then
@@ -412,10 +415,18 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	fi
 	
 	# Colorize lines ending with ... (compilation steps)
+	# Add a newline before the section header for visual separation (if not already blank)
 	if [[ "$line" =~ \.\.\.$ ]]; then
-		echo -e "\n\033[92;1m>> \033[93;1m${line%...}\033[0m"
+		if [[ -n "$prev_line" ]]; then
+			echo ""
+		fi
+		echo -e "\033[92;1m>> \033[93;1m${line%...}\033[0m"
+		prev_line=">>..."
 		continue
 	fi
+	
+	# Track previous line for spacing decisions
+	prev_line="$line"
 	
 	# Print the line
 	echo "$line"

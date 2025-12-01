@@ -6,14 +6,19 @@
             "compilerPath": "C:\\Users\\David\\AppData\\Local\\Arduino15\\packages\\esp8266\\tools\\xtensa-lx106-elf-gcc\\3.1.0-gcc10.3-e5f9fec\\bin\\xtensa-lx106-elf-g++",
             "compilerArgs": [
                 "-U__STRICT_ANSI__",
+                "-w",
+                "-Werror=return-type",
                 "-free",
                 "-fipa-pta",
-                "-Werror=return-type",
                 "-mlongcalls",
                 "-mtext-section-literals",
                 "-fno-rtti",
                 "-falign-functions=4",
-                "-std=gnu++17"
+                "-std=gnu++17",
+                "-fno-exceptions",
+                "-ffunction-sections",
+                "-fdata-sections",
+                "-Wimplicit-fallthrough"
             ],
             "intelliSenseMode": "gcc-x64",
             "includePath": [
@@ -43,10 +48,13 @@
                 "c:\\users\\david\\appdata\\local\\arduino15\\packages\\esp8266\\tools\\xtensa-lx106-elf-gcc\\3.1.0-gcc10.3-e5f9fec\\xtensa-lx106-elf\\include"
             ],
             "forcedInclude": [
-                "C:\\Users\\David\\AppData\\Local\\Arduino15\\packages\\esp8266\\hardware\\esp8266\\3.1.2\\cores\\esp8266\\Arduino.h"
+                "C:\\Users\\David\\AppData\\Local\\Arduino15\\packages\\esp8266\\hardware\\esp8266\\3.1.2\\cores\\esp8266\\Arduino.h",
+                "${workspaceFolder}/LocalLib/UART.h",
+                "${workspaceFolder}/LocalLib/Public.h",
+                "defines.h"
             ],
-            "cStandard": "c11",
-            "cppStandard": "c++17",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
             "defines": [
                 "__ets__",
                 "ICACHE_FLASH",
