@@ -363,7 +363,7 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	   [[ "$line" =~ ^Using\ global\ include ]] || \
 	   [[ "$line" =~ SyntaxWarning: ]] || \
 	   [[ "$line" =~ ^\ +.*re\.split ]] || \
-	   [[ "$line" =~ ^\ +\^+$ ]]; then
+	   [[ "$line" =~ ^[[:space:]]+[\^]+$ ]]; then
 		continue
 	fi
 	
