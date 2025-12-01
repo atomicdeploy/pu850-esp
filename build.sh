@@ -384,10 +384,6 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	line="${line//${VSCA_BUILD_DIR}/Build}"
 	line="${line//${VSCA_WORKSPACE_DIR}/}"
 	line="${line//${HOME}/~}"
-	# Remove esp8266 hardware path clutter
-	line=$(echo "$line" | sed -E 's|esp8266[/\\]hardware[/\\]esp8266[/\\][0-9.]+[/\\][a-zA-Z]+[/\\]||g')
-	# Remove Arduino library paths clutter  
-	line=$(echo "$line" | sed -E 's|~/(.arduino15|Documents/Arduino|AppData/Local/Arduino[0-9]+)/packages/esp8266/hardware/esp8266/[0-9.]*/||g')
 	# Replace -> with arrow
 	line="${line//->/→}"
 	
