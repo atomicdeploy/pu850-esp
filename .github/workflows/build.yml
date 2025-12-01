@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # Clone to ASA0002E directory to match sketch name (Arduino CLI requirement)
           path: ASA0002E
