@@ -276,34 +276,15 @@ if ! ensureArduinoCliVersion; then
 	exit 1
 fi
 
-# Handle sketch name mismatch with directory name
-# Arduino CLI expects the main .ino file to match the directory name
+# Check that sketch name matches directory name (Arduino CLI requirement)
 dir_name=$(basename "$VSCA_WORKSPACE_DIR")
 sketch_base="${VSCA_SKETCH%.ino}"
 expected_sketch="${dir_name}.ino"
-TEMP_RENAMED=""
-ORIGINAL_SKETCH=""
 
 if [ "$VSCA_SKETCH" != "$expected_sketch" ]; then
-	if [ "$IS_CI" = "true" ]; then
-		# In CI: temporarily rename the sketch file to match directory name
-		# We use mv to avoid duplicate .ino files which confuse arduino-cli
-		displayInfo "CI build: temporarily renaming ${VSCA_SKETCH} to ${expected_sketch}"
-		if [ -f "${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}" ]; then
-			mv "${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}" "${VSCA_WORKSPACE_DIR}/${expected_sketch}"
-			TEMP_RENAMED="$expected_sketch"
-			ORIGINAL_SKETCH="$VSCA_SKETCH"
-			# Update VSCA_SKETCH to use the renamed file for compilation
-			VSCA_SKETCH="$expected_sketch"
-		else
-			displayError "Sketch file not found: ${VSCA_WORKSPACE_DIR}/${VSCA_SKETCH}"
-			exit 1
-		fi
-	else
-		# Non-CI: warn the user about the mismatch
-		displayWarning "Sketch filename '${VSCA_SKETCH}' does not match directory name '${dir_name}'"
-		displayWarning "Arduino CLI may fail. Consider renaming your sketch or directory."
-	fi
+	displayWarning "Sketch filename '${VSCA_SKETCH}' does not match directory name '${dir_name}'"
+	displayWarning "Arduino CLI requires these to match. Consider renaming your sketch or directory."
+	displayWarning "In CI, use 'path: ${sketch_base}' in actions/checkout to clone to the correct directory."
 fi
 
 displayInfo "Building ${VSCA_SKETCH}"
@@ -380,16 +361,41 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	# Apply similar filtering as the PowerShell command in build.cmd
 	# Replace 'sketch' with 'project'
 	line="${line//sketch/project}"
-	# Simplify paths
-	line="${line//${VSCA_BUILD_DIR}/Build}"
-	line="${line//${VSCA_WORKSPACE_DIR}/}"
-	line="${line//${HOME}/~}"
+	# Simplify paths - use sed for reliable path substitution
+	# Replace build directory with "Build"
+	line=$(echo "$line" | sed "s|${VSCA_BUILD_DIR}|Build|g")
+	# Replace workspace directory with empty (for relative paths)
+	line=$(echo "$line" | sed "s|${VSCA_WORKSPACE_DIR}||g")
+	# Replace home directory with ~
+	line=$(echo "$line" | sed "s|${HOME}|~|g")
+	# Remove Arduino paths clutter
+	# Remove ~/.arduino15/packages/esp8266/.../version/... paths
+	line=$(echo "$line" | sed -E 's|~/.arduino15/packages/[^/]+/[^/]+/[^/]+/[^/]+/||g')
+	# Remove ~/Arduino/libraries/ paths
+	line=$(echo "$line" | sed 's|~/Arduino/libraries/||g')
+	line=$(echo "$line" | sed 's|~/Documents/Arduino/libraries/||g')
 	# Replace -> with arrow
 	line="${line//->/→}"
 	
 	# Colorize FQBN line
 	if [[ "$line" =~ ^FQBN: ]]; then
 		echo -e "\033[92;1mFQBN:\033[0m${line#FQBN:}"
+		continue
+	fi
+	
+	# Colorize memory table lines starting with box-drawing characters (cyan)
+	# Matches: ║, ╠══, ╚══, etc.
+	if [[ "$line" =~ ^[║╠╚═] ]]; then
+		# Extract the box-drawing prefix and the rest
+		prefix="${line%%[^║╠╚═]*}"
+		rest="${line#$prefix}"
+		echo -e "\033[0;96m${prefix}\033[0m${rest}"
+		continue
+	fi
+	
+	# Colorize lines starting with . (green bold) - memory summary lines
+	if [[ "$line" =~ ^\. ]]; then
+		echo -e "\033[92;1m${line}\033[0m"
 		continue
 	fi
 	
@@ -419,10 +425,6 @@ BIN_FILE="${SKETCH_BASE}.ino.bin"
 # Check if compilation succeeded
 if [ ! -f "$BIN_FILE" ]; then
 	displayError "Compilation failed!"
-	# Restore original sketch file if we renamed it
-	if [ -n "$TEMP_RENAMED" ] && [ -n "$ORIGINAL_SKETCH" ]; then
-		mv "${VSCA_WORKSPACE_DIR}/${TEMP_RENAMED}" "${VSCA_WORKSPACE_DIR}/${ORIGINAL_SKETCH}" 2>/dev/null
-	fi
 	exit 1
 fi
 
@@ -479,20 +481,6 @@ echo -e "Compressed to \033[92;1m${compressionRatio}%\033[0m of original size"
 # Note: This is a cleanup step; if deletion fails but file exists, that's an error
 # However, if the file doesn't exist, that's fine (build.cmd also suppresses errors)
 rm -f "${VSCA_WORKSPACE_DIR}/~local.h" 2>/dev/null
-
-# Restore original sketch file and rename output binary if we renamed during CI build
-if [ -n "$TEMP_RENAMED" ] && [ -n "$ORIGINAL_SKETCH" ]; then
-	# Restore the original sketch file
-	mv "${VSCA_WORKSPACE_DIR}/${TEMP_RENAMED}" "${VSCA_WORKSPACE_DIR}/${ORIGINAL_SKETCH}" 2>/dev/null
-	
-	# Rename output binary to use original sketch name
-	ORIGINAL_BIN_FILE="${ORIGINAL_SKETCH%.ino}.ino.bin"
-	if [ -f "$BIN_FILE" ] && [ "$BIN_FILE" != "$ORIGINAL_BIN_FILE" ]; then
-		mv "$BIN_FILE" "$ORIGINAL_BIN_FILE" 2>/dev/null
-		mv "${BIN_FILE}.md5.tmp" "${ORIGINAL_BIN_FILE}.md5.tmp" 2>/dev/null
-		BIN_FILE="$ORIGINAL_BIN_FILE"
-	fi
-fi
 
 displaySuccess "Build completed successfully!"
 

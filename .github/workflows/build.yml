@@ -17,11 +17,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Clone to ASA0002E directory to match sketch name (Arduino CLI requirement)
+          path: ASA0002E
 
       - name: Install Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
       - name: Create Arduino CLI config
+        working-directory: ASA0002E
         run: |
           mkdir -p .vscode
           cat > .vscode/arduino-cli.yaml << 'EOF'
@@ -37,6 +41,7 @@ jobs:
           sed -i 's/^          //' .vscode/arduino-cli.yaml
 
       - name: Install ESP8266 platform
+        working-directory: ASA0002E
         run: |
           arduino-cli --config-file .vscode/arduino-cli.yaml core update-index
           # Extract platform version from sketch.yaml using sed (more portable)
@@ -51,6 +56,7 @@ jobs:
           arduino-cli --config-file .vscode/arduino-cli.yaml core install "esp8266:esp8266@${PLATFORM_VERSION}"
 
       - name: Install required libraries from sketch.yaml
+        working-directory: ASA0002E
         run: |
           # Parse libraries from sketch.yaml and install them
           # Only match lines after "libraries:" that start with "- " and have format "LibraryName (version)"
@@ -66,6 +72,7 @@ jobs:
           done
 
       - name: Build firmware
+        working-directory: ASA0002E
         run: |
           chmod +x build.sh
           ./build.sh
@@ -74,5 +81,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware
-          path: Build/*.bin
+          path: ASA0002E/Build/*.bin
           if-no-files-found: error
