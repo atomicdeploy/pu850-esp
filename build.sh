@@ -357,6 +357,26 @@ build_command="arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:${bo
 
 # Execute the build command with output filtering similar to PowerShell version
 eval "$build_command" 2>&1 | while IFS= read -r line; do
+	# Skip verbose/useless lines (matching PowerShell -replace '^(...)', '[A' which moves cursor up, effectively hiding)
+	# These patterns match lines that are filtered out in the build.cmd PowerShell command
+	if [[ "$line" =~ ^default_encoding: ]] || \
+	   [[ "$line" =~ ^Alternatives\ for ]] || \
+	   [[ "$line" =~ ^Preferences\ override ]] || \
+	   [[ "$line" =~ ^To\ change, ]] || \
+	   [[ "$line" =~ Read\ more\ at ]] || \
+	   [[ "$line" =~ ^Tip: ]] || \
+	   [[ "$line" =~ ^Using\ cached ]] || \
+	   [[ "$line" =~ ^Using\ previously ]] || \
+	   [[ "$line" =~ ^Using\ precompiled ]] || \
+	   [[ "$line" =~ ^Using\ library ]] || \
+	   [[ "$line" =~ ^Using\ board ]] || \
+	   [[ "$line" =~ ^Using\ core ]] || \
+	   [[ "$line" =~ ^Using\ global\ include ]] || \
+	   [[ "$line" =~ ^\"~/.arduino15 ]] || \
+	   [[ "$line" =~ ResolveLibrary ]]; then
+		continue
+	fi
+	
 	# Apply similar filtering as the PowerShell command in build.cmd
 	# Replace 'sketch' with 'project'
 	line="${line//sketch/project}"
@@ -364,6 +384,31 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	line="${line//${VSCA_BUILD_DIR}/Build}"
 	line="${line//${VSCA_WORKSPACE_DIR}/}"
 	line="${line//${HOME}/~}"
+	# Remove esp8266 hardware path clutter
+	line=$(echo "$line" | sed -E 's|esp8266[/\\]hardware[/\\]esp8266[/\\][0-9.]+[/\\][a-zA-Z]+[/\\]||g')
+	# Remove Arduino library paths clutter  
+	line=$(echo "$line" | sed -E 's|~/(.arduino15|Documents/Arduino|AppData/Local/Arduino[0-9]+)/packages/esp8266/hardware/esp8266/[0-9.]*/||g')
+	# Replace -> with arrow
+	line="${line//->/→}"
+	
+	# Colorize FQBN line
+	if [[ "$line" =~ ^FQBN: ]]; then
+		echo -e "\033[92;1mFQBN:\033[0m${line#FQBN:}"
+		continue
+	fi
+	
+	# Colorize library lines (dim)
+	if [[ "$line" =~ [Ll]ibrary ]]; then
+		echo -e "\033[90m${line}\033[0m"
+		continue
+	fi
+	
+	# Colorize lines ending with ... (compilation steps)
+	if [[ "$line" =~ \.\.\.$ ]]; then
+		echo -e "\n\033[92;1m>> \033[93;1m${line%...}\033[0m"
+		continue
+	fi
+	
 	# Print the line
 	echo "$line"
 done
