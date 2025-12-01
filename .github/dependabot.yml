@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Update GitHub Actions versions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: "chore(deps):"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 5
+
+  # Update npm dependencies in Tool directory
+  - package-ecosystem: "npm"
+    directory: "/Tool"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps):"
+    labels:
+      - "dependencies"
+      - "npm"
+    open-pull-requests-limit: 5

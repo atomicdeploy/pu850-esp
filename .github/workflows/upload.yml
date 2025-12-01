@@ -1,0 +1,126 @@
+name: Upload Firmware
+
+on:
+  # Trigger after successful build workflow
+  workflow_run:
+    workflows: ["Build"]
+    types:
+      - completed
+    branches:
+      - main
+      - master
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Build workflow run ID (optional, uses latest successful if not provided)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    # Only run if UPDATE_API secret is set and build was successful
+    if: |
+      (github.event_name == 'workflow_dispatch' || 
+       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')) &&
+      vars.ENABLE_AUTO_UPLOAD == 'true'
+
+    steps:
+      - name: Check UPDATE_API secret
+        id: check_secret
+        run: |
+          if [ -z "${{ secrets.UPDATE_API }}" ]; then
+            echo "UPDATE_API secret is not set. Skipping upload."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "UPDATE_API secret is set. Proceeding with upload."
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        if: steps.check_secret.outputs.skip != 'true'
+        uses: actions/checkout@v4
+
+      - name: Get workflow run ID
+        if: steps.check_secret.outputs.skip != 'true'
+        id: get_run_id
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.run_id }}" ]; then
+            echo "run_id=${{ github.event.inputs.run_id }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "run_id=${{ github.event.workflow_run.id }}" >> $GITHUB_OUTPUT
+          else
+            # Find the latest successful build workflow run
+            RUN_ID=$(gh api repos/${{ github.repository }}/actions/workflows/build.yml/runs \
+              --jq '.workflow_runs | map(select(.conclusion == "success")) | .[0].id')
+            if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+              echo "No successful build workflow run found"
+              exit 1
+            fi
+            echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download firmware artifact
+        if: steps.check_secret.outputs.skip != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: firmware
+          run-id: ${{ steps.get_run_id.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List downloaded files
+        if: steps.check_secret.outputs.skip != 'true'
+        run: |
+          echo "Downloaded firmware files:"
+          ls -la firmware/
+
+      - name: Setup Node.js
+        if: steps.check_secret.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install upload tool dependencies
+        if: steps.check_secret.outputs.skip != 'true'
+        working-directory: Tool
+        run: npm ci
+
+      - name: Upload firmware
+        if: steps.check_secret.outputs.skip != 'true'
+        working-directory: Tool
+        env:
+          UPDATE_API: ${{ secrets.UPDATE_API }}
+        run: |
+          # Find the .bin file
+          BIN_FILE=$(find ../firmware -name "*.bin" | head -1)
+          
+          if [ -z "$BIN_FILE" ]; then
+            echo "No .bin file found in firmware artifact"
+            exit 1
+          fi
+          
+          echo "Uploading firmware: $BIN_FILE"
+          node upload.js --immediate "$BIN_FILE"
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.check_secret.outputs.skip }}" = "true" ]; then
+            echo "### ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
+            echo "Upload was skipped because UPDATE_API secret is not set." >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ job.status }}" = "success" ]; then
+            echo "### ✅ Firmware Uploaded" >> $GITHUB_STEP_SUMMARY
+            echo "Firmware was successfully uploaded to the device." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Upload Failed" >> $GITHUB_STEP_SUMMARY
+            echo "Firmware upload failed. Check the logs for details." >> $GITHUB_STEP_SUMMARY
+          fi

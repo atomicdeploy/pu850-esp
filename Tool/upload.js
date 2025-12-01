@@ -8,10 +8,17 @@ import { createHash } from 'crypto'
 import chalk from 'chalk'
 import notifier from 'node-notifier'
 
+// Check for --immediate mode (upload right away without watching for changes)
+const immediateMode = process.argv.includes('--immediate') || process.argv.includes('-i')
+
 if (process.argv.includes('--help')) {
-	console.log(`${chalk.green.bold`Usage:`} ${basename(process.argv[0]).replace(/\.exe$/gi, '')} ${basename(process.argv[1])} ${chalk.yellow('filename.bin')}\n`)
+	console.log(`${chalk.green.bold`Usage:`} ${basename(process.argv[0]).replace(/\.exe$/gi, '')} ${basename(process.argv[1])} ${chalk.yellow('[options]')} ${chalk.yellow('filename.bin')}\n`)
+	console.log(`${chalk.yellow`Options:`}`)
+	console.log(`  ${chalk.cyan`--immediate, -i`}  Upload the file immediately without watching for changes`)
+	console.log(`  ${chalk.cyan`--help`}           Show this help message\n`)
 	console.log(`${chalk.yellow`You must also set the environment variable \`UPDATE_API\` to the URL of the update API.`}`)
 	console.log(`${chalk.magenta`Example:`} set UPDATE_API=http://PU850.local:80/update`)
+	console.log(`${chalk.magenta`Example:`} UPDATE_API=http://192.168.1.100/update node upload.js --immediate firmware.bin`)
 	process.exit(0)
 }
 
@@ -45,7 +52,8 @@ try {
 	process.exit(1)
 }
 
-const filePath = process.argv[2]
+// Get file path from arguments (skip options)
+const filePath = process.argv.slice(2).find(arg => !arg.startsWith('-'))
 
 if (!filePath) {
 	console.error('Please provide a file path as an argument')
@@ -59,6 +67,117 @@ if (!existsSync(filePath)) {
 
 const resolvedPath = realpathSync(filePath, { encoding: "utf8" })
 
+/**
+ * Upload a firmware file to the update API
+ * @param {string} filePath - Path to the firmware file
+ * @param {boolean} checkMd5File - Whether to validate against .md5 file (false for immediate mode)
+ * @returns {Promise<{success: boolean, md5?: string, error?: string}>}
+ */
+async function uploadFile(filePath, checkMd5File = true) {
+	const fileName = basename(filePath)
+	
+	// Check if build is still in progress
+	if (existsSync(`${filePath}/../~local.h`) || existsSync(`${filePath}.gz`)) {
+		return { success: false, error: 'File is still being built' }
+	}
+	
+	// Read file and calculate MD5
+	const stats = statSync(filePath)
+	console.info('Size:', stats.size, 'bytes')
+	console.info('Time:', stats.mtime)
+	
+	const fileData = readFileSync(filePath)
+	const hash = createHash('md5')
+	hash.update(fileData)
+	const md5 = hash.digest('hex')
+	
+	console.info('MD5 Hash:', chalk.cyan(md5))
+	
+	// Optionally validate against .md5 file
+	if (checkMd5File && existsSync(`${filePath}.md5`)) {
+		const md5File = readFileSync(`${filePath}.md5`, { encoding: 'utf8' }).trim()
+		const md5Lines = md5File.split(/[\r\n]+/g).map(line => line.trim())
+		const md5List = {}
+		
+		md5Lines.forEach(line => {
+			line = line.replace(/\s+/g, ' ')
+			const index = line.indexOf(' ')
+			if (index > 0) {
+				let [md5Hash, name] = [line.substring(0, index).trim(), line.substring(index + 1).trim()]
+				name = basename(name.replace(/^\*/, ''))
+				md5Hash = md5Hash.replace(/[\\]/gi, '')
+				md5List[name] = md5Hash
+			}
+		})
+		
+		if (md5List[fileName + ' (compressed)'] && md5 !== md5List[fileName + ' (compressed)']) {
+			console.error(chalk.red.bold('MD5 mismatch!'))
+			console.error('Expected:', md5List[fileName + ' (compressed)'])
+			console.error('Calculated:', md5)
+			return { success: false, error: 'MD5 mismatch' }
+		}
+	}
+	
+	// Prepare form data
+	const formData = new FormData()
+	formData.append('MD5', md5)
+	formData.append('firmware', fileData)
+	
+	console.info('Uploading file...')
+	
+	// Upload the file
+	const response = await got.post(UPDATE_API, {
+		body: formData,
+		headers: {
+			...formData.getHeaders(),
+			...headers,
+		}
+	}).on('uploadProgress', (progressEvent) => {
+		if (progressEvent.transferred === 0) {
+			process.stdout.write(`\r\x1b[K${chalk.gray('Upload started')}\r`)
+			return
+		}
+		
+		const percentCompleted = Math.round((progressEvent.transferred / progressEvent.total) * 100)
+		process.stdout.write(`\r\x1b[K${chalk.gray(`Upload progress: ${percentCompleted}%`)}\r`)
+		
+		if (progressEvent.transferred === progressEvent.total) {
+			process.stdout.write(`\r\x1b[K${chalk.gray('Upload completed!')}\r`)
+		}
+	})
+	
+	process.stdout.write(`\r\x1b[K`) // clear line
+	
+	console.log(chalk.green.bold('Upload successful!'))
+	
+	if (response.body !== 'ok!') {
+		console.warn(chalk.yellow('API response:'), response.body)
+	}
+	
+	return { success: true, md5 }
+}
+
+// Immediate mode: upload right away and exit
+if (immediateMode) {
+	console.info(chalk.cyan`Immediate mode: uploading file directly`)
+	console.info(chalk.bold(resolvedPath))
+	
+	try {
+		const result = await uploadFile(filePath, false)
+		if (result.success) {
+			console.log(chalk.green.bold('✅ Upload completed successfully!'))
+			process.exit(0)
+		} else {
+			console.error(chalk.red.bold('❌ Upload failed'))
+			process.exit(1)
+		}
+	} catch (error) {
+		console.error(chalk.red.bold('❌ Error during upload:'), error.message || error)
+		process.exit(1)
+	}
+}
+
+// Watch mode (default behavior)
 const watcher = watch(filePath)
 
 process.stdout.write('\x1b[H\x1b[2J') // clear screen
