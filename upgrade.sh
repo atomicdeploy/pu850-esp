@@ -84,14 +84,24 @@ displayInfo "Checking for library updates..."
 
 # Temporary file for storing update info
 UPDATES_FILE=$(mktemp)
+LIBRARY_INDEX_CACHE=$(mktemp)
 HAS_UPDATES=false
 
-# Function to get latest library version from Arduino library index
+# Download and cache the library index once
+displayInfo "Downloading Arduino library index..."
+if ! curl -s "https://downloads.arduino.cc/libraries/library_index.json.gz" 2>/dev/null | gunzip > "$LIBRARY_INDEX_CACHE" 2>/dev/null; then
+    displayError "Failed to download library index"
+    rm -f "$UPDATES_FILE" "$LIBRARY_INDEX_CACHE"
+    exit 1
+fi
+
+# Function to get latest library version from cached library index
 get_latest_library_version() {
     local lib_name="$1"
-    curl -s "https://downloads.arduino.cc/libraries/library_index.json.gz" 2>/dev/null | gunzip 2>/dev/null | python3 -c "
+    python3 -c "
 import json, sys
-data = json.load(sys.stdin)
+with open('$LIBRARY_INDEX_CACHE', 'r') as f:
+    data = json.load(f)
 libs = data.get('libraries', [])
 latest = None
 search_name = '''$lib_name'''
@@ -216,6 +226,6 @@ else
 fi
 
 # Cleanup
-rm -f "$UPDATES_FILE"
+rm -f "$UPDATES_FILE" "$LIBRARY_INDEX_CACHE"
 
 exit 0
