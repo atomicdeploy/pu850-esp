@@ -1,0 +1,514 @@
+#!/bin/bash
+#
+# Build script for PU850 ESP8266 firmware
+# Bash equivalent of build.cmd for Linux/CI environments
+#
+# This script mirrors the functionality and style of the original Windows build.cmd
+#
+
+# Record start time
+start_time=$(date +%s.%N)
+
+# Get script directory (workspace) - equivalent to: cd /d %~dp0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Set environment variables - matching build.cmd exactly
+export VSCA_WORKSPACE_DIR="$SCRIPT_DIR"
+export VSCA_BUILD_DIR="${VSCA_WORKSPACE_DIR}/Build"
+export VSCA_SKETCH="ASA0002E.ino"
+
+# Detect if we're running in CI environment
+IS_CI="${CI:-false}"
+if [ "$IS_CI" = "true" ] || [ -n "$GITHUB_ACTIONS" ] || [ -n "$GITLAB_CI" ] || [ -n "$JENKINS_URL" ]; then
+	IS_CI="true"
+fi
+
+log_file="${VSCA_WORKSPACE_DIR}/build.log"
+build_script="$(basename "${BASH_SOURCE[0]}")"
+
+arduino_cli_flags="--config-file ${VSCA_WORKSPACE_DIR}/.vscode/arduino-cli.yaml"
+
+build_flags="-DARDUINO_CLI -DUSE_LOCALH"
+
+export ARDUINO_UPDATER_ENABLE_NOTIFICATION=false
+
+# Minimum required Arduino CLI version
+minimum_version="1.0.0"
+
+# Flash size in MB
+flashSize=1
+
+# Board parameters - exact match with build.cmd
+board_params="xtal=80,vt=flash,exception=disabled,stacksmash=disabled,ssl=basic,mmu=3232,non32xfer=fast,ResetMethod=nodemcu,CrystalFreq=26,FlashFreq=40,FlashMode=qio,eesz=${flashSize}M,led=2,sdk=nonosdk_190703,ip=lm2f,dbg=Disabled,lvl=None____,wipe=none,baud=115200"
+
+# ============================================================================
+# Display functions - matching the ANSI color codes from build.cmd
+# ============================================================================
+
+displayError() {
+	# Display an error message in red
+	echo ""
+	echo -e "\033[91;1m[ERROR]\033[0m $1"
+}
+
+displayWarning() {
+	# Display a warning message in yellow
+	echo ""
+	echo -e "\033[93;1m[WARNING]\033[0m $1"
+}
+
+displayInfo() {
+	# Display an information message in cyan
+	echo ""
+	echo -e "\033[96;1m[INFO]\033[0m $1"
+}
+
+displaySuccess() {
+	# Display a success message in green
+	echo ""
+	echo -e "\033[92;1m[SUCCESS]\033[0m $1"
+}
+
+# ============================================================================
+# Helper functions
+# ============================================================================
+
+ensureCommandExists() {
+	# Check if a command exists in the system
+	if ! command -v "$1" &> /dev/null; then
+		displayError "Command '$1' not found! Make sure it's installed and in the PATH."
+		return 1
+	fi
+	return 0
+}
+
+parseVersion() {
+	# Parse version string into major, minor, patch
+	local version="$1"
+	echo "$version" | awk -F. '{print $1, $2, $3}'
+}
+
+compareVersions() {
+	# Compare two version strings
+	# Returns: 0 if equal, 1 if first > second, 2 if first < second
+	local v1=($1)
+	local v2=($2)
+	
+	local major1=${v1[0]:-0}
+	local minor1=${v1[1]:-0}
+	local patch1=${v1[2]:-0}
+	
+	local major2=${v2[0]:-0}
+	local minor2=${v2[1]:-0}
+	local patch2=${v2[2]:-0}
+	
+	if [ "$major1" -gt "$major2" ]; then return 1; fi
+	if [ "$major1" -lt "$major2" ]; then return 2; fi
+	if [ "$minor1" -gt "$minor2" ]; then return 1; fi
+	if [ "$minor1" -lt "$minor2" ]; then return 2; fi
+	if [ "$patch1" -gt "$patch2" ]; then return 1; fi
+	if [ "$patch1" -lt "$patch2" ]; then return 2; fi
+	return 0
+}
+
+ensureArduinoCliVersion() {
+	local found_version
+	# arduino-cli version output format: "arduino-cli  Version: X.Y.Z Commit: ..."
+	# Extract just the version number
+	found_version=$(arduino-cli version 2>/dev/null | grep -oE 'Version:\s*[0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+	
+	if [ -z "$found_version" ]; then
+		displayWarning "'arduino-cli version' returned an improper version string, skipping version check"
+		return 0
+	fi
+	
+	# Parse versions
+	local min_parts=($(parseVersion "$minimum_version"))
+	local found_parts=($(parseVersion "$found_version"))
+	
+	compareVersions "${min_parts[*]}" "${found_parts[*]}"
+	local result=$?
+	
+	if [ $result -eq 1 ]; then
+		displayError "The installed arduino-cli version is $found_version, but at least $minimum_version is required."
+		return 1
+	fi
+	
+	return 0
+}
+
+elapsedTime() {
+	local start_sec=$1
+	local end_sec=$2
+	
+	# Calculate elapsed time using awk (more portable than bc)
+	local elapsed
+	elapsed=$(awk "BEGIN {printf \"%.2f\", $end_sec - $start_sec}" 2>/dev/null || echo "0.00")
+	
+	echo -e "Elapsed Time: \033[93;1m${elapsed}s\033[0m total"
+}
+
+prebuild() {
+	# Pre-build steps - equivalent to .vscode/prebuild.cmd
+	local h_file="${VSCA_WORKSPACE_DIR}/~local.h"
+	local hostname_var
+	local username_var
+	local date_var
+	local time_var
+	
+	hostname_var=$(hostname 2>/dev/null || echo "unknown")
+	username_var=$(whoami 2>/dev/null || echo "ci")
+	date_var=$(date "+%m/%d/%Y")
+	time_var=$(date "+%H:%M:%S")
+	
+	# Delete file if exists
+	rm -f "$h_file" 2>/dev/null
+	
+	# Create new file with header
+	cat > "$h_file" << EOF
+#pragma once
+
+/**
+ * This file was auto-generated by ${build_script}. Do not modify it manually.
+ *
+ * Generated on ${date_var} ${time_var} by ${username_var} on ${hostname_var}
+ *
+ */
+
+#define SKETCH_NAME "${VSCA_SKETCH}"
+#define BUILD_USERNAME "${username_var}"
+#define BUILD_HOSTNAME "${hostname_var}"
+EOF
+	
+	# Clean up old checksum file
+	rm -f "${VSCA_BUILD_DIR}/${VSCA_SKETCH}.bin.md5" 2>/dev/null
+	
+	# Clean up old h file in build directory
+	rm -f "${VSCA_BUILD_DIR}/sketch/~local.h" 2>/dev/null
+	
+	return 0
+}
+
+parseArgs() {
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--help)
+				echo ""
+				echo -e "\033[93;1mUsage: ${build_script} [options]\033[0m"
+				echo ""
+				echo -e "\033[93;1mOptions:\033[0m"
+				echo -e "\033[92;1m  --help\033[0m                Display this help message"
+				echo ""
+				echo -e "\033[92;1m  --debug-tools\033[0m         Enable ASA debug tools for dumping variables using web server"
+				echo -e "\033[92;1m  --debug-on-serial\033[0m     Prints ESP debug messages on serial"
+				echo -e "\033[92;1m  --shell-on-serial\033[0m     Enable shell on serial instead of PU850"
+				echo ""
+				echo -e "\033[92;1m  --dump-profile\033[0m        Dump the Arduino build profile"
+				echo -e "\033[92;1m  --profile [profile]\033[0m   Use the specified Arduino build profile"
+				echo ""
+				exit 1
+				;;
+			--debug-tools)
+				build_flags="${build_flags} -DDebugTools"
+				shift
+				;;
+			--debug-on-serial)
+				build_flags="${build_flags} -DDebugOnSerial"
+				shift
+				;;
+			--shell-on-serial)
+				build_flags="${build_flags} -DShellOnSerial"
+				shift
+				;;
+			--dump-profile)
+				displayInfo "Dumping the Arduino build profile"
+				arduino_cli_flags="${arduino_cli_flags} --dump-profile"
+				shift
+				;;
+			--skip-libraries-discovery)
+				displayInfo "Skipping discovery of used libraries"
+				arduino_cli_flags="${arduino_cli_flags} --skip-libraries-discovery"
+				shift
+				;;
+			--profile)
+				if [ -z "$2" ]; then
+					displayError "Missing profile name!"
+					exit 1
+				fi
+				displayInfo "Using build profile: $2"
+				arduino_cli_flags="${arduino_cli_flags} --profile $2"
+				shift 2
+				;;
+			*)
+				displayWarning "Unknown argument: $1"
+				shift
+				;;
+		esac
+	done
+}
+
+# ============================================================================
+# Main script execution
+# ============================================================================
+
+# Check if the user has set any custom flags in the environment variables
+[ "${DEBUG_TOOLS}" = "1" ] && build_flags="${build_flags} -DDebugTools"
+[ "${DEBUG_ON_SERIAL}" = "1" ] && build_flags="${build_flags} -DDebugOnSerial"
+[ "${SHELL_ON_SERIAL}" = "1" ] && build_flags="${build_flags} -DShellOnSerial"
+[ "${SKIP_LIBRARIES_DISCOVERY}" = "1" ] && arduino_cli_flags="${arduino_cli_flags} --skip-libraries-discovery"
+
+# Parse command line arguments
+parseArgs "$@"
+
+# List of commands to check - matching build.cmd (adjusted for bash environment)
+commands="hostname whoami arduino-cli gzip md5sum touch sed ls"
+
+# Loop through each command and check if it's in the PATH
+for cmd in $commands; do
+	if ! ensureCommandExists "$cmd"; then
+		exit 1
+	fi
+done
+
+# Check Arduino CLI version
+if ! ensureArduinoCliVersion; then
+	exit 1
+fi
+
+# Check that sketch name matches directory name (Arduino CLI requirement)
+dir_name=$(basename "$VSCA_WORKSPACE_DIR")
+sketch_base="${VSCA_SKETCH%.ino}"
+expected_sketch="${dir_name}.ino"
+
+if [ "$VSCA_SKETCH" != "$expected_sketch" ]; then
+	displayWarning "Sketch filename '${VSCA_SKETCH}' does not match directory name '${dir_name}'"
+	displayWarning "Arduino CLI requires these to match. Consider renaming your sketch or directory."
+	displayWarning "In CI, use 'path: ${sketch_base}' in actions/checkout to clone to the correct directory."
+fi
+
+displayInfo "Building ${VSCA_SKETCH}"
+
+# Check if Build directory exists, if not, create it
+if [ ! -d "$VSCA_BUILD_DIR" ]; then
+	mkdir -p "$VSCA_BUILD_DIR"
+	if [ $? -ne 0 ]; then
+		displayError "Failed to create Build directory!"
+		exit 1
+	fi
+fi
+
+# Create arduino-cli.yaml config file if it doesn't exist
+config_file="${VSCA_WORKSPACE_DIR}/.vscode/arduino-cli.yaml"
+mkdir -p "$(dirname "$config_file")"
+if [ ! -f "$config_file" ]; then
+	displayInfo "Creating Arduino CLI configuration file"
+	cat > "$config_file" << 'EOF'
+directories:
+  data: ~/.arduino15
+  downloads: ~/.arduino15/staging
+  user: ~/Arduino
+board_manager:
+  additional_urls:
+    - https://arduino.esp8266.com/stable/package_esp8266com_index.json
+EOF
+fi
+
+# Pre-build steps
+if ! prebuild; then
+	displayError "Prebuild script failed!"
+	exit 1
+fi
+
+# Clean old build files (non-fatal if fails, matching build.cmd behavior)
+rm -f "${VSCA_BUILD_DIR}/${VSCA_SKETCH}".* 2>/dev/null
+# Note: rm -f returns 0 even if files don't exist, matching build.cmd's del behavior
+
+# Remove build.log
+if [ -f "$log_file" ]; then
+	rm -f "$log_file" 2>/dev/null
+	# Note: Non-fatal warning in build.cmd, so we don't error here
+fi
+
+# Compile the sketch
+# Note: Removed --build-cache-path as it's deprecated
+# Arduino CLI compiles the sketch from the workspace directory
+# Add LocalLib to library path so local includes work
+build_command="arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:${board_params} --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags=--no_cache_core --build-property build.opt.flags= --build-property build.extra_flags=\"-Wall ${build_flags}\" --build-path \"${VSCA_BUILD_DIR}\" --libraries \"${VSCA_WORKSPACE_DIR}/LocalLib\" --jobs 0 --log-level trace --log-file \"${log_file}\" ${arduino_cli_flags} \"${VSCA_WORKSPACE_DIR}\""
+
+# Execute the build command with output filtering similar to PowerShell version
+eval "$build_command" 2>&1 | while IFS= read -r line; do
+	# Skip verbose/useless lines (matching PowerShell -replace '^(...)', '[A' which moves cursor up, effectively hiding)
+	# These patterns match lines that are filtered out in the build.cmd PowerShell command
+	
+	# Filter lines starting with Arduino paths (tools, packages, internal) - these are verbose command lines
+	# On Windows: ~\AppData\Local\Arduino15\packages\... or ~\AppData\Local\Arduino15\internal\...
+	# On Linux: ~/.arduino15/packages/... or ~/.arduino15/staging/...
+	# Also filter lines starting with absolute paths to arduino directories
+	if [[ "$line" =~ ^\"?${HOME}/.arduino15/(packages|staging|internal)/ ]] || \
+	   [[ "$line" =~ ^\"?/.+/.arduino15/(packages|staging|internal)/ ]] || \
+	   [[ "$line" =~ ^default_encoding: ]] || \
+	   [[ "$line" =~ ^Alternatives\ for ]] || \
+	   [[ "$line" =~ ^Preferences\ override ]] || \
+	   [[ "$line" =~ ^To\ change, ]] || \
+	   [[ "$line" =~ Read\ more\ at ]] || \
+	   [[ "$line" =~ ^Tip: ]] || \
+	   [[ "$line" =~ ^Using\ cached ]] || \
+	   [[ "$line" =~ ^Using\ previously ]] || \
+	   [[ "$line" =~ ^Using\ precompiled ]] || \
+	   [[ "$line" =~ ^Using\ library ]] || \
+	   [[ "$line" =~ ^Using\ board ]] || \
+	   [[ "$line" =~ ^Using\ core ]] || \
+	   [[ "$line" =~ ^Using\ global\ include ]] || \
+	   [[ "$line" =~ ResolveLibrary ]]; then
+		continue
+	fi
+	
+	# Apply similar filtering as the PowerShell command in build.cmd
+	# Replace 'sketch' with 'project'
+	line="${line//sketch/project}"
+	# Simplify paths - use sed for reliable path substitution
+	# Replace build directory with "Build"
+	line=$(echo "$line" | sed "s|${VSCA_BUILD_DIR}|Build|g")
+	# Replace workspace directory with empty (for relative paths)
+	line=$(echo "$line" | sed "s|${VSCA_WORKSPACE_DIR}||g")
+	# Replace home directory with ~
+	line=$(echo "$line" | sed "s|${HOME}|~|g")
+	# Remove Arduino paths clutter
+	# Remove ~/.arduino15/packages/esp8266/.../version/... paths
+	line=$(echo "$line" | sed -E 's|~/.arduino15/packages/[^/]+/[^/]+/[^/]+/[^/]+/||g')
+	# Remove ~/Arduino/libraries/ paths
+	line=$(echo "$line" | sed 's|~/Arduino/libraries/||g')
+	line=$(echo "$line" | sed 's|~/Documents/Arduino/libraries/||g')
+	# Replace -> with arrow
+	line="${line//->/→}"
+	
+	# Colorize FQBN line
+	if [[ "$line" =~ ^FQBN: ]]; then
+		echo -e "\033[92;1mFQBN:\033[0m${line#FQBN:}"
+		continue
+	fi
+	
+	# Colorize memory table lines starting with box-drawing characters (cyan)
+	# Matches: ║, ╠══, ╚══, etc.
+	if [[ "$line" =~ ^[║╠╚═] ]]; then
+		# Extract the box-drawing prefix and the rest
+		prefix="${line%%[^║╠╚═]*}"
+		rest="${line#$prefix}"
+		echo -e "\033[0;96m${prefix}\033[0m${rest}"
+		continue
+	fi
+	
+	# Colorize lines starting with . (green bold) - memory summary lines
+	if [[ "$line" =~ ^\. ]]; then
+		echo -e "\033[92;1m${line}\033[0m"
+		continue
+	fi
+	
+	# Colorize library lines (dim)
+	if [[ "$line" =~ [Ll]ibrary ]]; then
+		echo -e "\033[90m${line}\033[0m"
+		continue
+	fi
+	
+	# Colorize lines ending with ... (compilation steps)
+	if [[ "$line" =~ \.\.\.$ ]]; then
+		echo -e "\n\033[92;1m>> \033[93;1m${line%...}\033[0m"
+		continue
+	fi
+	
+	# Print the line
+	echo "$line"
+done
+
+# Change to build directory
+pushd "$VSCA_BUILD_DIR" > /dev/null
+
+# Determine the output binary name (sketch name without .ino extension + .ino.bin)
+SKETCH_BASE="${VSCA_SKETCH%.ino}"
+BIN_FILE="${SKETCH_BASE}.ino.bin"
+
+# Check if compilation succeeded
+if [ ! -f "$BIN_FILE" ]; then
+	displayError "Compilation failed!"
+	exit 1
+fi
+
+# Get the size of the binary file
+size=$(stat -c%s "$BIN_FILE" 2>/dev/null || stat -f%z "$BIN_FILE" 2>/dev/null)
+totalUsage=$((100 * size / (flashSize * 1048576)))
+
+# Display the program size and flash usage
+echo ""
+echo -e "\033[92;1mProgram Size:\033[0m ${size} bytes (\033[95;1m${totalUsage}%\033[0m of flash used)"
+
+# Calculate the MD5 checksum of the raw binary file (uncompressed)
+if ! md5sum "$BIN_FILE" > "${BIN_FILE}.md5.tmp"; then
+	displayError "Failed to generate MD5 checksum!"
+	exit 1
+fi
+
+# Compress the binary file with gzip
+displayInfo "Compressing binary file"
+if ! gzip -f -9 "$BIN_FILE"; then
+	displayError "Compression failed!"
+	exit 1
+fi
+
+# Rename the compressed file back to .bin
+if ! mv "${BIN_FILE}.gz" "$BIN_FILE"; then
+	displayError "Failed to rename compressed file!"
+	exit 1
+fi
+
+# Recalculate the MD5 checksum of the compressed file
+if ! md5sum "$BIN_FILE" | sed -e "s/${BIN_FILE}/& (compressed)/g" >> "${BIN_FILE}.md5.tmp"; then
+	displayError "Failed to generate MD5 checksum after compression!"
+	exit 1
+fi
+
+# Update the timestamp of the binary file
+if ! touch "$BIN_FILE"; then
+	displayError "Failed to update the file timestamp!"
+	exit 1
+fi
+
+# Get the size of the compressed binary file
+compressedSize=$(stat -c%s "$BIN_FILE" 2>/dev/null || stat -f%z "$BIN_FILE" 2>/dev/null)
+compressionRatio=$((compressedSize * 100 / size))
+
+# Display file sizes
+echo ""
+ls -lh "$BIN_FILE" --color --time-style=long-iso 2>/dev/null || ls -lh "$BIN_FILE"
+
+echo -e "Compressed to \033[92;1m${compressionRatio}%\033[0m of original size"
+
+# Clean up the local header file
+# Note: This is a cleanup step; if deletion fails but file exists, that's an error
+# However, if the file doesn't exist, that's fine (build.cmd also suppresses errors)
+rm -f "${VSCA_WORKSPACE_DIR}/~local.h" 2>/dev/null
+
+displaySuccess "Build completed successfully!"
+
+# Display the MD5 checksum of the binary file (with colors)
+echo ""
+sed -E \
+	-e "s/([a-f0-9]{32})/\x1b[32m\1\x1b[0m/" \
+	-e "s/(\*\S+)/\x1b[33m\1\x1b[0m/" \
+	-e "s/(\(compressed\))/\x1b[34m\1\x1b[0m/" \
+	"${BIN_FILE}.md5.tmp"
+
+# Save the final MD5 checksum file
+if ! mv "${BIN_FILE}.md5.tmp" "${BIN_FILE}.md5" 2>/dev/null; then
+	displayError "Failed to save the MD5 checksum file!"
+	exit 1
+fi
+
+popd > /dev/null
+
+# Record end time and display elapsed time
+end_time=$(date +%s.%N)
+echo ""
+elapsedTime "$start_time" "$end_time"
+
+exit 0

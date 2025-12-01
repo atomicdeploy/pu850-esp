@@ -1,0 +1,85 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Clone to ASA0002E directory to match sketch name (Arduino CLI requirement)
+          path: ASA0002E
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Create Arduino CLI config
+        working-directory: ASA0002E
+        run: |
+          mkdir -p .vscode
+          cat > .vscode/arduino-cli.yaml << 'EOF'
+          directories:
+            data: ~/.arduino15
+            downloads: ~/.arduino15/staging
+            user: ~/Arduino
+          board_manager:
+            additional_urls:
+              - https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          EOF
+          # Remove leading spaces from the YAML file
+          sed -i 's/^          //' .vscode/arduino-cli.yaml
+
+      - name: Install ESP8266 platform
+        working-directory: ASA0002E
+        run: |
+          arduino-cli --config-file .vscode/arduino-cli.yaml core update-index
+          # Extract platform version from sketch.yaml using sed (more portable)
+          # Format: "platform: esp8266:esp8266 (3.1.2)"
+          PLATFORM_VERSION=$(grep 'platform: esp8266:esp8266' sketch.yaml | sed 's/.*(\([0-9.]*\)).*/\1/' 2>/dev/null)
+          # Validate version format (should be digits and dots only)
+          if ! echo "$PLATFORM_VERSION" | grep -qE '^[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+            echo "Warning: Could not extract valid platform version, using default 3.1.2"
+            PLATFORM_VERSION="3.1.2"
+          fi
+          echo "Installing ESP8266 platform version: ${PLATFORM_VERSION}"
+          arduino-cli --config-file .vscode/arduino-cli.yaml core install "esp8266:esp8266@${PLATFORM_VERSION}"
+
+      - name: Install required libraries from sketch.yaml
+        working-directory: ASA0002E
+        run: |
+          # Parse libraries from sketch.yaml and install them
+          # Only match lines after "libraries:" that start with "- " and have format "LibraryName (version)"
+          # Exclude lines containing "platform:" to avoid matching platform entries
+          grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+\([^)]+\)' | grep -v 'platform:' | while read -r line; do
+            # Extract library name (everything before the last '(' with version)
+            lib_name=$(echo "$line" | sed -E 's/^\s*-\s*(.+)\s*\([^)]+\)\s*$/\1/' | sed 's/[[:space:]]*$//')
+            # Extract version (content inside the last parentheses)
+            lib_version=$(echo "$line" | sed -E 's/.*\(([^)]+)\).*/\1/')
+            echo "Installing library: ${lib_name}@${lib_version}"
+            arduino-cli --config-file .vscode/arduino-cli.yaml lib install "${lib_name}@${lib_version}" || \
+              arduino-cli --config-file .vscode/arduino-cli.yaml lib install "${lib_name}"
+          done
+
+      - name: Build firmware
+        working-directory: ASA0002E
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: ASA0002E/Build/*.bin
+          if-no-files-found: error

@@ -1,7 +1,20 @@
 #pragma once
+
+// Include ESPAsyncWebServer.h first to get its HTTP_* enum definitions
+// This must come before ESPTelnet.h which includes ESP8266WebServer.h
+#include <ESPAsyncWebServer.h>
+
+// Guard against ESP8266WebServer.h redefining HTTP_* enums
+// This works because ESP8266WebServer.h uses an include guard
+#ifndef ESP8266WEBSERVER_H
+#define ESP8266WEBSERVER_H
+#endif
+
 #include "../ASA0002E.h"
 #include <ESP8266WiFi.h>
 
+// Include ESPTelnet without it pulling in ESP8266WebServer's enum definitions
+// since we already defined the guard above
 #include <ESPTelnet.h>
 #include <EscapeCodes.h>
 
