@@ -102,7 +102,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.check_secret.outputs.skip != 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get workflow run ID
         if: steps.check_secret.outputs.skip != 'true'
