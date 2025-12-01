@@ -68,3 +68,4 @@ bin/
 Arduino/
 ~/.arduino15/
 ~/Arduino/
+~local.h
