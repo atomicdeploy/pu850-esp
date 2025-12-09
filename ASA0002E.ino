@@ -113,7 +113,7 @@
 
 WiFiUDP ntpUDP;
 
-// NTP client configured to use pool.ntp.org with default UTC timezone
+// NTP client configured to use pool.ntp.org with UTC timezone
 // Update interval: 60000ms (1 minute)
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
 
@@ -147,14 +147,13 @@ void WiFi_Setup()
 
 	if (ap_enabled)
 	{
-		// Configure static IP for AP mode (192.168.4.1 as gateway)
+		// TODO: set static IP for AP
 		WiFi.softAPConfig( IPAddress(192,168,4,1), IPAddress(0,0,0,0), IPAddress(255,255,255,0) );
 	}
 
 	if (sta_enabled)
 	{
-		// NOTE: Static IP configuration for station mode is not implemented
-		// Would require adding IP configuration fields to flashSettings structure
+		// TODO: set static IP for station
 		/*
 		if ( !flashSettings.dhcp_enabled )
 		{
@@ -1967,12 +1966,12 @@ void onDateTimeReceived()
 	// https://github.com/esp8266/Arduino/blob/master/libraries/esp8266/examples/RTCUserMemory/RTCUserMemory.ino
 	// |<------system data (256 bytes)------->|<-----------------user data (512 bytes)--------------->|
 	// OTA takes the first 128 bytes of the USER area.
-	// NOTE: RTC memory storage for device date/time is not currently implemented
-	// Future implementation could use ESP.rtcUserMemoryRead/Write for persistence across deep sleep
-	// Example: if(!ESP.rtcUserMemoryRead(RTC_USER_DATA_ADDR, &data, sizeof(data))) {}
+	// if(!ESP.rtcUserMemoryRead(RTC_USER_DATA_ADDR, &data, sizeof(data))) {}
+	// if(!ESP.rtcUserMemoryWrite(RTC_USER_DATA_ADDR, &data, sizeof(data))) {}
 	// The offset is measured in blocks of 4 bytes and can range from 0 to 127 blocks (total size of RTC memory is 512 bytes).
 	// The data should be 4-byte aligned.
 	// Data stored in the first 32 blocks will be lost after performing an OTA update, because they are used by the Core internals.
+	// TODO: Implement RTC memory for storing device date/time
 
 	PU_DateTime.set(year, month, day, hour, minute, second);
 }
@@ -2180,6 +2179,16 @@ void onWsReceivedCommand(AsyncWebSocketClient *client, const C8* data)
 	if (strcasecmp(data, "datetime") == 0)
 	{
 		ReadEPfromPU_DateTime();
+	}
+
+	// (TODO) Remove
+	if (strcmp(data, "client:helloWorld") == 0)
+	{
+		// onBeepReceived(1);
+		// PushToStrEndPoint(ESP_Suffix_MessageStr, ",v,n lhadk");
+		// onMessageReceived(0xff, 0, 0, ID_InformationIcon_);
+
+		client->text("server:PU850_OK");
 	}
 }
 
@@ -2421,12 +2430,17 @@ void loop()
 
 				if (settingsError && settingsError != 0xff)
 				{
-					// NOTE: Settings error notification to PU is not currently implemented.
-					// Future implementation could send error messages based on error code:
-					// case 1: No data (ESP Restored)
-					// case 2: Invalid data (ESP Corrupted)
-					// case 3: Request by user (ESP RestByUsr)
-					
+					// (TODO)
+
+					// switch (settingsError)
+					// {
+					// 	case 1: Request_SendMessage_ToPU("\x02" "ESP Restored",  0, 0, ID_MemoryIcon_); // No data
+					// 	case 2: Request_SendMessage_ToPU("\x02" "ESP Corrupted", 0, 0, ID_MemoryIcon_); // Invalid data
+					// 	case 3: Request_SendMessage_ToPU("\x02" "ESP RestByUsr", 0, 0, ID_MemoryIcon_); // Request by user
+					// }
+
+					// SendCommand(ESP_Prefix_Request, ESP_Suffix_RestoreBackup, settingsError);
+
 					settingsError = 0xff;
 				}
 			}

@@ -57,8 +57,7 @@ struct flashSettings
 	C8 sta_ssid[FCSTS_ + 1];
 	C8 sta_password[FCSTS_ + 1];
 
-	// NOTE: Static IP settings and port settings are not currently stored in flash
-	// Future enhancement would add fields for: dhcp_enabled, static_ip, gateway, subnet, dns, port
+	// TODO: static ip settings, port settings
 }
 flashSettings;
 
