@@ -57,7 +57,16 @@ struct flashSettings
 	C8 sta_ssid[FCSTS_ + 1];
 	C8 sta_password[FCSTS_ + 1];
 
-	// TODO: static ip settings, port settings
+	// Static IP settings
+	U8 dhcp_enabled;        // 1 = use DHCP, 0 = use static IP
+	U8 static_ip[4];        // Static IP address (e.g., 192.168.1.100)
+	U8 gateway[4];          // Gateway IP address (e.g., 192.168.1.1)
+	U8 subnet[4];           // Subnet mask (e.g., 255.255.255.0)
+	U8 dns[4];              // DNS server (e.g., 8.8.8.8)
+	
+	// Port settings
+	U16 web_port;           // Web server port (default: 80)
+	U16 telnet_port;        // Telnet port (default: 23)
 }
 flashSettings;
 
