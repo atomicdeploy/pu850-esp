@@ -45,7 +45,7 @@ const int GWP = 16; // Hardware status pin to PU
 
 bool RevisionMatch = false;
 
-// (TODO)
+// WiFi and network status variables
 U8 E_QuantitySSID = 0;
 U16 E_PingResult = 0;
 U32 E_RSSI;

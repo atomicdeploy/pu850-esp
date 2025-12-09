@@ -2,14 +2,14 @@
 
 #include "CrashHandler.h"
 
-// override the crash dump printer to inhibit output to UART
+// Override the crash dump printer to inhibit output to UART
 extern "C" void crash_ets_uart_putc1(C8 c) {
 	// ets_uart_putc1(c);
 }
 
-// TODO:
-// define the custom crash callback function, it is called automatically if ESP8266 suffers an exception
-// The callback must be kept quick and concise to be able to execute before hardware WDT kick in
+// NOTE: Custom crash callback is not currently implemented.
+// The function below provides a template for future implementation if needed.
+// The callback must be kept quick and concise to execute before hardware WDT kicks in.
 /*
 extern "C" void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end)
 {

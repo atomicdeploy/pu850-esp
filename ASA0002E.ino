@@ -2181,16 +2181,6 @@ void onWsReceivedCommand(AsyncWebSocketClient *client, const C8* data)
 	{
 		ReadEPfromPU_DateTime();
 	}
-
-	// (TODO) Remove
-	if (strcmp(data, "client:helloWorld") == 0)
-	{
-		// onBeepReceived(1);
-		// PushToStrEndPoint(ESP_Suffix_MessageStr, ",v,n lhadk");
-		// onMessageReceived(0xff, 0, 0, ID_InformationIcon_);
-
-		client->text("server:PU850_OK");
-	}
 }
 
 void ConfirmSettings(U8 save, U8 section)
@@ -2431,17 +2421,12 @@ void loop()
 
 				if (settingsError && settingsError != 0xff)
 				{
-					// (TODO)
-
-					// switch (settingsError)
-					// {
-					// 	case 1: Request_SendMessage_ToPU("\x02" "ESP Restored",  0, 0, ID_MemoryIcon_); // No data
-					// 	case 2: Request_SendMessage_ToPU("\x02" "ESP Corrupted", 0, 0, ID_MemoryIcon_); // Invalid data
-					// 	case 3: Request_SendMessage_ToPU("\x02" "ESP RestByUsr", 0, 0, ID_MemoryIcon_); // Request by user
-					// }
-
-					// SendCommand(ESP_Prefix_Request, ESP_Suffix_RestoreBackup, settingsError);
-
+					// NOTE: Settings error notification to PU is not currently implemented.
+					// Future implementation could send error messages based on error code:
+					// case 1: No data (ESP Restored)
+					// case 2: Invalid data (ESP Corrupted)
+					// case 3: Request by user (ESP RestByUsr)
+					
 					settingsError = 0xff;
 				}
 			}
