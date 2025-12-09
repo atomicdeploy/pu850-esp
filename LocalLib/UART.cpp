@@ -922,7 +922,8 @@ bool PushToNumEndPoint(U8 EndPoint, S32 n)
 
 			case ESP_Suffix_SerialNumber:       E_SerialNumber       =       n; onValueUpdate(eSuffix, (U32)n);  break;
 
-			// (TODO:) case ESP_Suffix_MaxSessions:        MAX_SESSIONS         =  (U8)n; break;
+			// Note: MAX_SESSIONS is defined as const and cannot be changed at runtime
+			// case ESP_Suffix_MaxSessions:        MAX_SESSIONS         =  (U8)n; break;
 
 			case ESP_Suffix_IsExecutable:       IsExecutable         = (bool)n; onValueUpdate(eSuffix, (bool)n); break;
 
@@ -1022,7 +1023,7 @@ S32  PopFromNumEndPoint(U8 EndPoint)
 
 			case ESP_Suffix_AppRunningCount:    return      ws.count();
 
-			case ESP_Suffix_MaxSessions:        return  MAX_SESSIONS; // (TODO)
+			case ESP_Suffix_MaxSessions:        return  MAX_SESSIONS;
 
 			default:
 				#ifdef DebugTools
@@ -2124,7 +2125,8 @@ void FileOrderProcessor()
 			break;
 
 		case ESP_Suffix_ReceiveFile:			// ESP sends file to PU, we will send file
-			// (TODO)
+			// NOTE: File transfer from ESP to PU is not currently implemented
+			// Future implementation would handle file transmission over UART
 			break;
 
 		default:

@@ -113,8 +113,9 @@
 
 WiFiUDP ntpUDP;
 
-NTPClient timeClient(ntpUDP); // TODO: configure NTP
-// NTPClient timeClient(ntpUDP, "pool.ntp.org", 36000, 60000);
+// NTP client configured to use pool.ntp.org with default UTC timezone
+// Update interval: 60000ms (1 minute)
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
 
 // JSONVar dataValues;
 
@@ -573,8 +574,6 @@ void setup()
 	initSessions();
 
 	timeClient.begin();
-
-	// timeClient.setTimeOffset(0); // TODO: set time offset
 
 	server->onNotFound([&](AsyncWebServerRequest *request) {
 		/*
