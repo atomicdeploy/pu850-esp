@@ -147,13 +147,14 @@ void WiFi_Setup()
 
 	if (ap_enabled)
 	{
-		// TODO: set static IP for AP
+		// Configure static IP for AP mode (192.168.4.1 as gateway)
 		WiFi.softAPConfig( IPAddress(192,168,4,1), IPAddress(0,0,0,0), IPAddress(255,255,255,0) );
 	}
 
 	if (sta_enabled)
 	{
-		// TODO: set static IP for station
+		// NOTE: Static IP configuration for station mode is not implemented
+		// Would require adding IP configuration fields to flashSettings structure
 		/*
 		if ( !flashSettings.dhcp_enabled )
 		{
@@ -1966,12 +1967,12 @@ void onDateTimeReceived()
 	// https://github.com/esp8266/Arduino/blob/master/libraries/esp8266/examples/RTCUserMemory/RTCUserMemory.ino
 	// |<------system data (256 bytes)------->|<-----------------user data (512 bytes)--------------->|
 	// OTA takes the first 128 bytes of the USER area.
-	// if(!ESP.rtcUserMemoryRead(RTC_USER_DATA_ADDR, &data, sizeof(data))) {}
-	// if(!ESP.rtcUserMemoryWrite(RTC_USER_DATA_ADDR, &data, sizeof(data))) {}
+	// NOTE: RTC memory storage for device date/time is not currently implemented
+	// Future implementation could use ESP.rtcUserMemoryRead/Write for persistence across deep sleep
+	// Example: if(!ESP.rtcUserMemoryRead(RTC_USER_DATA_ADDR, &data, sizeof(data))) {}
 	// The offset is measured in blocks of 4 bytes and can range from 0 to 127 blocks (total size of RTC memory is 512 bytes).
 	// The data should be 4-byte aligned.
 	// Data stored in the first 32 blocks will be lost after performing an OTA update, because they are used by the Core internals.
-	// TODO: Implement RTC memory for storing device date/time
 
 	PU_DateTime.set(year, month, day, hour, minute, second);
 }
