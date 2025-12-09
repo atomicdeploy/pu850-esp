@@ -216,7 +216,7 @@ void Settings_Clear()
 	memset(flashSettings.sta_password, Null_, sizeof(flashSettings.sta_password));
 	
 	// Initialize static IP settings with defaults
-	flashSettings.dhcp_enabled = 1; // Enable DHCP by default
+	flashSettings.dhcp_enabled = true; // Enable DHCP by default
 	
 	// Default static IP: 192.168.1.100
 	flashSettings.static_ip[0] = 192;
@@ -268,7 +268,7 @@ bool Settings_Read()
 		}
 	}
 
-	settingsError = (flashSettings.crc32 == ErrorNum_) ? 1 : 2;
+	settingsError = (flashSettings.crc32 == ErrorNum_) ? SETTINGS_ERROR_NO_DATA : SETTINGS_ERROR_CORRUPTED;
 
 	Settings_Clear();
 
@@ -2465,9 +2465,9 @@ void loop()
 				{
 					switch (settingsError)
 					{
-						case 1: Request_SendMessage_ToPU("\x02" "ESP Restored",  0, 0, ID_MemoryIcon_); break; // No data
-						case 2: Request_SendMessage_ToPU("\x02" "ESP Corrupted", 0, 0, ID_MemoryIcon_); break; // Invalid data
-						case 3: Request_SendMessage_ToPU("\x02" "ESP RestByUsr", 0, 0, ID_MemoryIcon_); break; // Request by user
+						case SETTINGS_ERROR_NO_DATA:        Request_SendMessage_ToPU("\x02" "ESP Restored",  0, 0, ID_MemoryIcon_); break;
+						case SETTINGS_ERROR_CORRUPTED:      Request_SendMessage_ToPU("\x02" "ESP Corrupted", 0, 0, ID_MemoryIcon_); break;
+						case SETTINGS_ERROR_USER_REQUEST:   Request_SendMessage_ToPU("\x02" "ESP RestByUsr", 0, 0, ID_MemoryIcon_); break;
 					}
 
 					// SendCommand(ESP_Prefix_Request, ESP_Suffix_RestoreBackup, settingsError);

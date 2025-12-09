@@ -44,6 +44,13 @@
 
 // ---------------------------------------------------------------------
 
+// Settings error codes
+#define SETTINGS_ERROR_NO_DATA          1  // No data - ESP Restored
+#define SETTINGS_ERROR_CORRUPTED        2  // Invalid data - ESP Corrupted  
+#define SETTINGS_ERROR_USER_REQUEST     3  // Request by user - ESP RestByUsr
+
+// ---------------------------------------------------------------------
+
 struct flashSettings
 {
 	U32 crc32;				// 4 bytes, must always come first
@@ -58,7 +65,7 @@ struct flashSettings
 	C8 sta_password[FCSTS_ + 1];
 
 	// Static IP settings
-	U8 dhcp_enabled;        // 1 = use DHCP, 0 = use static IP
+	bool dhcp_enabled;      // true = use DHCP, false = use static IP
 	U8 static_ip[4];        // Static IP address (e.g., 192.168.1.100)
 	U8 gateway[4];          // Gateway IP address (e.g., 192.168.1.1)
 	U8 subnet[4];           // Subnet mask (e.g., 255.255.255.0)
