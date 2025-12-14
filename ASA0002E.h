@@ -788,8 +788,6 @@ bool parseDateTime(const String& dateTimeStr, TimeStamp& ts) {
 }
 
 // ---------------------------------------------------------------------
-// RTC Memory - persistent storage across reboots
-// ---------------------------------------------------------------------
 
 #include "LocalLib/RtcMemory.h"
 
