@@ -57,7 +57,7 @@ jobs:
 
       - name: Create Pull Request
         if: steps.check_updates.outputs.updates_applied == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore: update Arduino libraries and platform versions"
