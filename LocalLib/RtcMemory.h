@@ -120,15 +120,22 @@ public:
 	}
 
 	// Get current time as epoch
+	// Note: Uses unsigned arithmetic for millis() delta which correctly handles
+	// wraparound (every ~49 days) as long as time is updated more frequently
 	time_t getCurrentEpoch() const {
 		time_t baseEpoch = rtcData_.lastKnown.toEpoch();
-		uint32_t deltaMs = millis() - rtcData_.lastKnown.millisStamp;
+		uint32_t currentMs = millis();
+		uint32_t deltaMs = currentMs - rtcData_.lastKnown.millisStamp;
 		return baseEpoch + (deltaMs / 1000);
 	}
 
 	// Calculate uptime in seconds since boot
 	uint32_t getUptimeSeconds() const {
-		return static_cast<uint32_t>(getCurrentEpoch() - rtcData_.boot.toEpoch());
+		time_t bootEpoch = rtcData_.boot.toEpoch();
+		time_t currentEpoch = getCurrentEpoch();
+		// Ensure we don't return negative uptime if timestamps are invalid
+		if (currentEpoch < bootEpoch) return 0;
+		return static_cast<uint32_t>(currentEpoch - bootEpoch);
 	}
 
 	// Accessors
