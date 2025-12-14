@@ -37,7 +37,7 @@ public:
 
 	// Erase all stored data (sets to zero)
 	void clear() {
-		memset(&rtcData_, 0, sizeof(rtcData_));
+		rtcData_ = DataBlock();  // Value-initialization instead of memset
 		error_ = ErrorCode::OK;
 	}
 
@@ -73,7 +73,7 @@ public:
 			sizeof(rtcData_) - sizeof(rtcData_.crc32)
 		);
 
-		if (!ESP.rtcUserMemoryWrite(RTC_USER_DATA_ADDR, reinterpret_cast<const uint32_t*>(&rtcData_), sizeof(rtcData_))) {
+		if (!ESP.rtcUserMemoryWrite(RTC_USER_DATA_ADDR, reinterpret_cast<uint32_t*>(&rtcData_), sizeof(rtcData_))) {
 			error_ = ErrorCode::WriteFail;
 			return false;
 		}
