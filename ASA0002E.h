@@ -787,6 +787,15 @@ bool parseDateTime(const String& dateTimeStr, TimeStamp& ts) {
 	return true;
 }
 
+// ---------------------------------------------------------------------
+// RTC Memory - persistent storage across reboots
+// ---------------------------------------------------------------------
+
+#include "LocalLib/RtcMemory.h"
+
+// Global RTC memory instance for storing boot time and last known time
+RtcMemory rtcMemory;
+
 /**
  * @brief Formats the total seconds of uptime into a string representation.
  *
