@@ -180,9 +180,27 @@ jobs:
           
           🔗 **[Download Firmware Artifact](https://github.com/${REPO}/actions/runs/${RUN_ID})**
           
-          The compiled and compressed firmware binary is available as a workflow artifact.
+          The compiled and compressed firmware binary is available as a workflow artifact along with MD5 checksums and build metadata.
           
-          ## 🔐 Integrity Verification
+          ### 📦 Artifact Contents
+          
+          - \`${SKETCH_NAME}.bin\` - Compressed firmware binary (gzip)
+          - \`${SKETCH_NAME}.bin.md5\` - MD5 checksums for verification
+          - \`build-info.txt\` - Build configuration and metadata
+          
+          ## 🔐 MD5 Checksums
+          
+          ### Compressed Binary (gzip)
+          \`\`\`
+          ${MD5_COMPRESSED}
+          \`\`\`
+          
+          ### Original Binary (before compression)
+          \`\`\`
+          ${MD5_UNCOMPRESSED}
+          \`\`\`
+          
+          ## ✅ Integrity Verification
           
           To verify the firmware integrity after download, use one of these methods:
           
@@ -218,4 +236,5 @@ jobs:
           path: |
             ASA0002E/Build/*.bin
             ASA0002E/Build/*.md5
+            ASA0002E/Build/build-info.txt
           if-no-files-found: error
