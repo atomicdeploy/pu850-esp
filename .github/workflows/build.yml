@@ -225,15 +225,6 @@ jobs:
           | ✅ **Available Space** | ${FLASH_AVAILABLE_KB} KB |
           | 📦 **Total Flash** | ${FLASH_TOTAL_KB} KB |
           
-          ## 📊 Binary File Details
-          
-          | 📦 File Type | Size | 🔐 MD5 Hash | 🔗 Download URL |
-          |---------------|------|--------------|-----------------|
-          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** _(${ORIGINAL_SIZE} bytes)_ | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
-          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** _(${COMPRESSED_SIZE} bytes)_ | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
-          
-          - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
-          
           **Usage Visualization:**
           
           \`\`\`
@@ -246,6 +237,19 @@ jobs:
             [ $EMPTY -gt 0 ] && printf '░%.0s' $(seq 1 $EMPTY)
           )] ${FLASH_USAGE_PCT}%
           \`\`\`
+          
+          ## 📊 Binary File Details
+          
+          | 📦 File Type | Size | 🔐 MD5 Hash | 🔗 Download URL |
+          |---------------|------|--------------|-----------------|
+          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** _($(printf "%'d" ${ORIGINAL_SIZE}) bytes)_ | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
+          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** _($(printf "%'d" ${COMPRESSED_SIZE}) bytes)_ | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
+          
+          - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
+          
+          **Compression Visualization:**
+          
+          ![*${COMPRESSION_RATIO}% Compression](https://geps.dev/progress/${COMPRESSION_RATIO}?dangerColor=28a745&warningColor=ffc107&successColor=dc3545)
           
           ### 📦 Artifact Contents
           
