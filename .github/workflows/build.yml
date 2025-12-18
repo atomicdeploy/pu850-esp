@@ -46,9 +46,9 @@ jobs:
         working-directory: ASA0002E
         run: |
           arduino-cli --config-file .vscode/arduino-cli.yaml core update-index
-          # Extract platform version from sketch.yaml using sed (more portable)
+          # Extract platform version from sketch.yaml using awk (more portable)
           # Format: "platform: esp8266:esp8266 (3.1.2)"
-          PLATFORM_VERSION=$(grep 'platform: esp8266:esp8266' sketch.yaml | sed 's/.*(\([0-9.]*\)).*/\1/' 2>/dev/null)
+          PLATFORM_VERSION=$(grep 'platform: esp8266:esp8266' sketch.yaml | awk -F'[()]' '{print $2}' 2>/dev/null)
           # Validate version format (should be digits and dots only)
           if ! echo "$PLATFORM_VERSION" | grep -qE '^[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
             echo "Warning: Could not extract valid platform version, using default 3.1.2"
@@ -195,10 +195,9 @@ jobs:
           
           # Parse library list from sketch.yaml before heredoc to avoid command substitution issues
           LIBRARY_LIST=$(grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+\([^)]+\)' | grep -v 'platform:' | while read -r line; do
-            # Extract library name (before opening paren)
-            lib_name=$(echo "$line" | sed 's/^[[:space:]]*-[[:space:]]*//' | sed 's/[[:space:]]*(.*$//')
-            # Extract version (between parens)
-            lib_version=$(echo "$line" | sed 's/.*(\([^)]*\)).*/\1/')
+            # Extract library name (before opening paren) and version (between parens)
+            lib_name=$(echo "$line" | awk -F'[()]' '{gsub(/^[[:space:]]*-[[:space:]]*/, "", $1); gsub(/[[:space:]]*$/, "", $1); print $1}')
+            lib_version=$(echo "$line" | awk -F'[()]' '{print $2}')
             echo "          | $lib_name | \`$lib_version\` |"
           done)
           
