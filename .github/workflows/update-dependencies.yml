@@ -155,10 +155,10 @@ jobs:
           # Parse and display update details in a table
           if [ -f upgrade_output.txt ]; then
             # Extract library updates
-            LIBRARY_UPDATES=$(grep "Library" upgrade_output.txt | grep -E "->|up to date" | sed 's/\[SUCCESS\] /✅ /' | sed 's/\[WARNING\] /⚠️ /' || echo "")
+            LIBRARY_UPDATES=$(grep "Library" upgrade_output.txt | grep -E "->|up to date" | sed 's/\[SUCCESS\] /✅ /' | sed 's/\[WARNING\] /⚠️ /' 2>/dev/null || true)
             
             # Extract platform updates
-            PLATFORM_UPDATES=$(grep "Platform" upgrade_output.txt | grep -E "->|up to date" | sed 's/\[SUCCESS\] /✅ /' | sed 's/\[WARNING\] /⚠️ /' || echo "")
+            PLATFORM_UPDATES=$(grep "Platform" upgrade_output.txt | grep -E "->|up to date" | sed 's/\[SUCCESS\] /✅ /' | sed 's/\[WARNING\] /⚠️ /' 2>/dev/null || true)
             
             if [ -n "$LIBRARY_UPDATES" ] || [ -n "$PLATFORM_UPDATES" ]; then
               cat >> $GITHUB_STEP_SUMMARY << 'EOF'

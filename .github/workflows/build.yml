@@ -124,8 +124,13 @@ jobs:
           ARTIFACTS_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
             "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts")
           
-          # Extract the artifact ID for "firmware" artifact
-          ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep '"id":' | head -1 | grep -oP '\d+')
+          # Extract the artifact ID for "firmware" artifact using jq if available, otherwise grep
+          if command -v jq &> /dev/null; then
+            ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.name == "firmware") | .id' 2>/dev/null || echo "")
+          else
+            # Fallback to grep-based parsing
+            ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep '"id":' | head -1 | grep -oP '\d+' || echo "")
+          fi
           
           if [ -n "$ARTIFACT_ID" ]; then
             ARTIFACT_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}"
@@ -142,6 +147,7 @@ jobs:
           FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.2f\", ${FLASH_TOTAL_KB} - ${COMPRESSED_SIZE_KB}}")
           
           # Extract key board parameters for display
+          # Default values: CPU=80MHz, Crystal=26MHz, Flash=40MHz/QIO
           CRYSTAL_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'CrystalFreq=\K[^,]+' || echo "26")
           FLASH_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'FlashFreq=\K[^,]+' || echo "40")
           FLASH_MODE=$(echo "$BOARD_PARAMS" | grep -oP 'FlashMode=\K[^,]+' || echo "qio")
