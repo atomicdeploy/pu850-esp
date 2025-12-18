@@ -179,9 +179,9 @@ jobs:
             
             while IFS='|' read -r name old new repo_url; do
               if [ -n "$name" ]; then
-                # Create changelog link
+                # Create changelog link (only for GitHub repositories)
                 CHANGELOG_LINK=""
-                if [ -n "$repo_url" ]; then
+                if [ -n "$repo_url" ] && echo "$repo_url" | grep -q "github.com"; then
                   # Remove .git suffix if present
                   repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
                   CHANGELOG_LINK="[Compare](${repo_clean}/compare/${old}...${new})"
@@ -206,9 +206,9 @@ jobs:
             
             while IFS='|' read -r name old new repo_url; do
               if [ -n "$name" ]; then
-                # Create changelog link
+                # Create changelog link (only for GitHub repositories)
                 CHANGELOG_LINK=""
-                if [ -n "$repo_url" ]; then
+                if [ -n "$repo_url" ] && echo "$repo_url" | grep -q "github.com"; then
                   # Remove .git suffix if present
                   repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
                   CHANGELOG_LINK="[Compare](${repo_clean}/compare/${old}...${new})"

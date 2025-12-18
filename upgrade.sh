@@ -110,43 +110,43 @@ fi
 # Function to get latest library version from cached library index
 get_latest_library_version() {
     local lib_name="$1"
-    python3 -c "
+    python3 -c '
 import json, sys
-with open('$LIBRARY_INDEX_CACHE', 'r') as f:
+with open(sys.argv[1], "r") as f:
     data = json.load(f)
-libs = data.get('libraries', [])
+libs = data.get("libraries", [])
 latest = None
-search_name = '''$lib_name'''
+search_name = sys.argv[2]
 for lib in libs:
-    name = lib.get('name', '')
-    version = lib.get('version', '')
+    name = lib.get("name", "")
+    version = lib.get("version", "")
     if name == search_name:
         if latest is None or version > latest:
             latest = version
-print(latest if latest else '')
-" 2>/dev/null
+print(latest if latest else "")
+' "$LIBRARY_INDEX_CACHE" "$lib_name" 2>/dev/null
 }
 
 # Function to get library repository URL from cached library index
 get_library_repository() {
     local lib_name="$1"
-    python3 -c "
+    python3 -c '
 import json, sys
-with open('$LIBRARY_INDEX_CACHE', 'r') as f:
+with open(sys.argv[1], "r") as f:
     data = json.load(f)
-libs = data.get('libraries', [])
+libs = data.get("libraries", [])
 latest = None
-latest_repo = ''
-search_name = '''$lib_name'''
+latest_repo = ""
+search_name = sys.argv[2]
 for lib in libs:
-    name = lib.get('name', '')
-    version = lib.get('version', '')
+    name = lib.get("name", "")
+    version = lib.get("version", "")
     if name == search_name:
         if latest is None or version > latest:
             latest = version
-            latest_repo = lib.get('repository', lib.get('website', ''))
+            latest_repo = lib.get("repository", lib.get("website", ""))
 print(latest_repo)
-" 2>/dev/null
+' "$LIBRARY_INDEX_CACHE" "$lib_name" 2>/dev/null
 }
 
 # Function to get latest ESP8266 platform version
