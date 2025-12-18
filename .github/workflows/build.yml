@@ -203,6 +203,8 @@ jobs:
           
           ### 📊 Usage Visualization
           
+          ![Progress](https://geps.dev/progress/${FLASH_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745)
+          
           \`\`\`
           Flash: [$(printf '█%.0s' $(seq 1 $((FLASH_USAGE_PCT/2))))$(printf '░%.0s' $(seq 1 $((50-FLASH_USAGE_PCT/2))))] ${FLASH_USAGE_PCT}%
           \`\`\`
