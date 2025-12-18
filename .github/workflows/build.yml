@@ -260,7 +260,7 @@ jobs:
           )
           
           **Platform:**
-          - ESP8266 Arduino Core: \`$(grep 'platform: esp8266:esp8266' sketch.yaml | sed 's/.*[(]\([0-9.]*\)[)].*/\1/' || echo '3.1.2')\`
+          - ESP8266 Arduino Core: \`$(grep 'platform: esp8266:esp8266' sketch.yaml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo '3.1.2')\`
           
           </details>
           
