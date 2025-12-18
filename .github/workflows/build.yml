@@ -106,9 +106,26 @@ jobs:
           BIN_FILE="Build/${SKETCH_NAME}.bin"
           MD5_FILE="Build/${SKETCH_NAME}.bin.md5"
           
-          # Read MD5 hashes
-          MD5_UNCOMPRESSED=$(grep -v "compressed" "$MD5_FILE" | awk '{print $1}')
-          MD5_COMPRESSED=$(grep "compressed" "$MD5_FILE" | awk '{print $1}')
+          # Ensure MD5 file exists
+          if [ ! -f "$MD5_FILE" ]; then
+            echo "Error: MD5 file '$MD5_FILE' not found. Ensure the build step generated this file." >&2
+            exit 1
+          fi
+          
+          # Read MD5 hashes with basic validation
+          MD5_UNCOMPRESSED=$(grep -v "compressed" "$MD5_FILE" | awk '{print $1}') || {
+            echo "Error parsing MD5 file '$MD5_FILE' for uncompressed hash." >&2
+            exit 1
+          }
+          MD5_COMPRESSED=$(grep "compressed" "$MD5_FILE" | awk '{print $1}') || {
+            echo "Error parsing MD5 file '$MD5_FILE' for compressed hash." >&2
+            exit 1
+          }
+          
+          if [ -z "$MD5_UNCOMPRESSED" ] || [ -z "$MD5_COMPRESSED" ]; then
+            echo "Error: MD5 hashes could not be extracted from '$MD5_FILE' (one or both hashes are empty)." >&2
+            exit 1
+          fi
           
           # Get build timestamp
           BUILD_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
