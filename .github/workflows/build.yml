@@ -249,6 +249,26 @@ jobs:
           FLASH_MODE=$(echo "$BOARD_PARAMS" | grep -oP 'FlashMode=\K[^,]+' || echo "qio")
           CPU_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'xtal=\K[^,]+' || echo "80")
           
+          # Pre-calculate all visualizations and formatted values to avoid command substitution inside heredoc
+          # Flash usage visualization
+          FLASH_BARS_FILLED=""
+          [ $FLASH_BARS -gt 0 ] && FLASH_BARS_FILLED=$(printf '█%.0s' $(seq 1 $FLASH_BARS))
+          FLASH_EMPTY=$((50 - $FLASH_BARS))
+          FLASH_BARS_EMPTY=""
+          [ $FLASH_EMPTY -gt 0 ] && FLASH_BARS_EMPTY=$(printf '░%.0s' $(seq 1 $FLASH_EMPTY))
+          
+          # RAM usage visualization
+          RAM_BARS_FILLED=""
+          [ $RAM_BARS -gt 0 ] && RAM_BARS_FILLED=$(printf '█%.0s' $(seq 1 $RAM_BARS))
+          RAM_EMPTY=$((50 - $RAM_BARS))
+          RAM_BARS_EMPTY=""
+          [ $RAM_EMPTY -gt 0 ] && RAM_BARS_EMPTY=$(printf '░%.0s' $(seq 1 $RAM_EMPTY))
+          
+          # RAM formatted values
+          RAM_AVAILABLE_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_AVAILABLE}/1024}")
+          RAM_TOTAL_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_TOTAL}/1024}")
+          RAM_USED_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_USED}/1024}")
+          
           # Create the summary
           cat >> $GITHUB_STEP_SUMMARY << EOF
           # ✅ Build successful
@@ -316,14 +336,7 @@ jobs:
           **Usage Visualization:**
           
           \`\`\`
-          Flash: [$(
-            # Print filled bars
-            [ $FLASH_BARS -gt 0 ] && printf '█%.0s' $(seq 1 $FLASH_BARS)
-            
-            # Print empty bars
-            EMPTY=$((50 - $FLASH_BARS))
-            [ $EMPTY -gt 0 ] && printf '░%.0s' $(seq 1 $EMPTY)
-          )] ${FLASH_USAGE_PCT}%
+          Flash: [${FLASH_BARS_FILLED}${FLASH_BARS_EMPTY}] ${FLASH_USAGE_PCT}%
           \`\`\`
           
           ## 🧠 RAM (SRAM) Usage
@@ -331,21 +344,14 @@ jobs:
           | Metric | Value |
           |--------|-------|
           | 📊 **RAM Usage** | ![${RAM_USAGE_PCT}% Used](https://geps.dev/progress/${RAM_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) |
-          | ✅ **Available RAM** | $(awk "BEGIN {printf \"%.2f\", ${RAM_AVAILABLE}/1024}") KB (${RAM_AVAILABLE} bytes) |
-          | 📦 **Total RAM** | $(awk "BEGIN {printf \"%.2f\", ${RAM_TOTAL}/1024}") KB (${RAM_TOTAL} bytes) |
-          | 🔧 **Used by Globals** | $(awk "BEGIN {printf \"%.2f\", ${RAM_USED}/1024}") KB (${RAM_USED} bytes) |
+          | ✅ **Available RAM** | ${RAM_AVAILABLE_KB} KB (${RAM_AVAILABLE} bytes) |
+          | 📦 **Total RAM** | ${RAM_TOTAL_KB} KB (${RAM_TOTAL} bytes) |
+          | 🔧 **Used by Globals** | ${RAM_USED_KB} KB (${RAM_USED} bytes) |
           
           **Usage Visualization:**
           
           \`\`\`
-          RAM:   [$(
-            # Print filled bars
-            [ $RAM_BARS -gt 0 ] && printf '█%.0s' $(seq 1 $RAM_BARS)
-            
-            # Print empty bars
-            EMPTY=$((50 - $RAM_BARS))
-            [ $EMPTY -gt 0 ] && printf '░%.0s' $(seq 1 $EMPTY)
-          )] ${RAM_USAGE_PCT}%
+          RAM:   [${RAM_BARS_FILLED}${RAM_BARS_EMPTY}] ${RAM_USAGE_PCT}%
           \`\`\`
           
           ## 📊 Binary File Details
