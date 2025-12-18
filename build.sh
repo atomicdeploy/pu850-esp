@@ -578,8 +578,8 @@ RAM_USED=${RAM_USED}
 RAM_TOTAL=${RAM_TOTAL}
 RAM_USAGE_PCT=${RAM_USAGE_PCT}
 RAM_AVAILABLE=${RAM_AVAILABLE}
-BOARD_PARAMS='${board_params}'
-BUILD_FLAGS='${build_flags}'
+BOARD_PARAMS="${board_params}"
+BUILD_FLAGS="${build_flags}"
 EOF
 	displayInfo "Build metadata exported to ${BUILD_INFO_FILE}"
 fi
