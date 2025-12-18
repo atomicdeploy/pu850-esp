@@ -194,12 +194,25 @@ jobs:
           [ $RAM_BARS -gt 50 ] && RAM_BARS=50
           
           # Parse library list from sketch.yaml before heredoc to avoid command substitution issues
-          LIBRARY_LIST=$(grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+\([^)]+\)' | grep -v 'platform:' | while read -r line; do
-            # Extract library name (before opening paren) and version (between parens)
-            lib_name=$(echo "$line" | awk -F'[()]' '{gsub(/^[[:space:]]*-[[:space:]]*/, "", $1); gsub(/[[:space:]]*$/, "", $1); print $1}')
-            lib_version=$(echo "$line" | awk -F'[()]' '{print $2}')
-            echo "          | $lib_name | \`$lib_version\` |"
-          done)
+          # Use awk with index/substr to extract libraries without regex patterns
+          LIBRARY_LIST=$(awk '
+            /libraries:/ { in_libs=1; next }
+            in_libs && /-/ && /\(/ && /\)/ {
+              # Find positions of opening and closing parens
+              open_paren = index($0, "(")
+              close_paren = index($0, ")")
+              if (open_paren > 0 && close_paren > open_paren) {
+                # Extract name (before opening paren) and version (between parens)
+                name = substr($0, 1, open_paren - 1)
+                version = substr($0, open_paren + 1, close_paren - open_paren - 1)
+                # Clean up name (remove leading dash and whitespace)
+                gsub(/^[[:space:]]*-[[:space:]]*/, "", name)
+                gsub(/[[:space:]]*$/, "", name)
+                print "          | " name " | `" version "` |"
+              }
+            }
+            /^[^[:space:]]/ && in_libs && !/libraries:/ { exit }
+          ' sketch.yaml)
           
           # Extract key board parameters for display
           # Default values: CPU=80MHz, Crystal=26MHz, Flash=40MHz/QIO
