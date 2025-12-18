@@ -234,19 +234,16 @@ jobs:
           \`\`\`
           Flash: [$(
             # Calculate bars with bounds checking
-            BARS=\$((${FLASH_USAGE_PCT} / 2))
-            if [ \$BARS -lt 0 ]; then BARS=0; elif [ \$BARS -gt 50 ]; then BARS=50; fi
+            BARS=$((${FLASH_USAGE_PCT} / 2))
+            [ \$BARS -lt 0 ] && BARS=0
+            [ \$BARS -gt 50 ] && BARS=50
             
             # Print filled bars
-            if [ \$BARS -gt 0 ]; then
-              printf '█%.0s' \$(seq 1 \$BARS)
-            fi
+            [ \$BARS -gt 0 ] && printf '█%.0s' \$(seq 1 \$BARS)
             
             # Print empty bars
-            EMPTY=\$((50 - BARS))
-            if [ \$EMPTY -gt 0 ]; then
-              printf '░%.0s' \$(seq 1 \$EMPTY)
-            fi
+            EMPTY=$((50 - \$BARS))
+            [ \$EMPTY -gt 0 ] && printf '░%.0s' \$(seq 1 \$EMPTY)
           )] ${FLASH_USAGE_PCT}%
           \`\`\`
           
