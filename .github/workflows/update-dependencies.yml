@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Check for library and platform updates
         id: check_updates
@@ -59,7 +61,7 @@ jobs:
         if: steps.check_updates.outputs.updates_applied == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           commit-message: "chore: update Arduino libraries and platform versions"
           title: "chore: Automatic dependency updates"
           body: |
