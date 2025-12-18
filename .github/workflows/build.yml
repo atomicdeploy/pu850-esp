@@ -221,7 +221,10 @@ jobs:
                 # Clean up name (remove leading dash and whitespace)
                 gsub(/^[[:space:]]*-[[:space:]]*/, "", name)
                 gsub(/[[:space:]]*$/, "", name)
-                print "          | " name " | `" version "` |"
+                # Create GitHub library search URL
+                lib_url = "https://github.com/search?q=" name "&type=repositories"
+                # Print table row without leading spaces (avoid markdown code block)
+                print "| [" name "](" lib_url ") | `" version "` |"
               }
             }
             /^[^[:space:]]/ && in_libs && !/libraries:/ { exit }
@@ -342,7 +345,8 @@ jobs:
           Flash: [${FLASH_BARS_FILLED}${FLASH_BARS_EMPTY}] ${FLASH_USAGE_PCT}%
           \`\`\`
           
-          ## 🧠 RAM (SRAM) Usage
+          <details>
+          <summary>🧠 RAM (SRAM) Usage (Click to expand)</summary>
           
           | Metric | Value |
           |--------|-------|
@@ -357,12 +361,14 @@ jobs:
           RAM:   [${RAM_BARS_FILLED}${RAM_BARS_EMPTY}] ${RAM_USAGE_PCT}%
           \`\`\`
           
+          </details>
+          
           ## 📊 Binary File Details
           
           | 📦 File Type | Size | 🔐 MD5 Hash | 🔗 Download URL |
           |---------------|------|--------------|-----------------|
-          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** (${ORIGINAL_SIZE} bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
-          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** (${COMPRESSED_SIZE} bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
+          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** ($(printf "%'d" ${ORIGINAL_SIZE} 2>/dev/null || echo ${ORIGINAL_SIZE}) bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
+          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** ($(printf "%'d" ${COMPRESSED_SIZE} 2>/dev/null || echo ${COMPRESSED_SIZE}) bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
           
           - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved ${COMPRESSION_SAVED_KB} KB, using gzip level 9)
           
