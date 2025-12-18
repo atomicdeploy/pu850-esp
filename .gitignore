@@ -73,3 +73,6 @@ Arduino/
 # Node.js
 node_modules/
 _codeql_detected_source_root
+
+# Temporary workflow files
+upgrade_output.txt

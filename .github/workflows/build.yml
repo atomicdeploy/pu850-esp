@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          # Clone to ASA0002E directory to match sketch name (Arduino CLI requirement)
+          # Clone to a directory with the same name to match the sketch file (Arduino CLI requirement)
           path: ASA0002E
 
       - name: Install Arduino CLI
@@ -80,8 +80,229 @@ jobs:
           ./build.sh
 
       - name: Upload build artifacts
+        id: upload_artifacts
         uses: actions/upload-artifact@v6
         with:
           name: firmware
-          path: ASA0002E/Build/*.bin
+          path: |
+            ASA0002E/Build/*.bin
+            ASA0002E/Build/*.md5
+            ASA0002E/Build/build-info.txt
           if-no-files-found: error
+
+      - name: Generate build summary
+        working-directory: ASA0002E
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          # Load build information
+          if [ -f Build/build-info.txt ]; then
+            source Build/build-info.txt
+          else
+            echo "Error: Build/build-info.txt not found. Ensure build.sh generated this file before running the build summary step." >&2
+            exit 1
+          fi
+          
+          BIN_FILE="Build/${SKETCH_NAME}.bin"
+          MD5_FILE="Build/${SKETCH_NAME}.bin.md5"
+          
+          # Ensure MD5 file exists
+          if [ ! -f "$MD5_FILE" ]; then
+            echo "Error: MD5 file '$MD5_FILE' not found. Ensure the build step generated this file." >&2
+            exit 1
+          fi
+          
+          # Read MD5 hashes with basic validation
+          MD5_UNCOMPRESSED=$(grep -v "compressed" "$MD5_FILE" | awk '{print $1}') || {
+            echo "Error parsing MD5 file '$MD5_FILE' for uncompressed hash." >&2
+            exit 1
+          }
+          MD5_COMPRESSED=$(grep "compressed" "$MD5_FILE" | awk '{print $1}') || {
+            echo "Error parsing MD5 file '$MD5_FILE' for compressed hash." >&2
+            exit 1
+          }
+          
+          if [ -z "$MD5_UNCOMPRESSED" ] || [ -z "$MD5_COMPRESSED" ]; then
+            echo "Error: MD5 hashes could not be extracted from '$MD5_FILE' (one or both hashes are empty)." >&2
+            exit 1
+          fi
+          
+          # Get build timestamp
+          BUILD_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          # Get repository info
+          REPO="${GITHUB_REPOSITORY}"
+          COMMIT_SHA_FULL="${GITHUB_SHA}"
+          RUN_ID="${GITHUB_RUN_ID}"
+          
+          # Fetch artifact download URL using GitHub API
+          echo "🔍 Fetching artifact download URL..."
+          ARTIFACT_URL=""
+          MAX_RETRIES=5
+          DELAY=2
+          
+          # Retry fetching artifacts until the "firmware" artifact is available or retries are exhausted
+          for ((i=1; i<=MAX_RETRIES; i++)); do
+            echo "🔁 Attempt $i to fetch artifacts for run ${RUN_ID}..."
+            ARTIFACTS_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts")
+          
+            # Extract the artifact ID for "firmware" artifact using jq if available, otherwise grep
+            if command -v jq &> /dev/null; then
+              ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.name == "firmware") | .id' 2>/dev/null || echo "")
+            else
+              # Fallback to grep-based parsing with more specific pattern
+              ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep -m1 -oP '"id":\s*\K[0-9]+' || echo "")
+            fi
+          
+            if [ -n "$ARTIFACT_ID" ]; then
+              break
+            fi
+          
+            if [ "$i" -lt "$MAX_RETRIES" ]; then
+              echo "⏱️ Artifact not found yet, waiting ${DELAY}s before retrying..."
+              sleep "$DELAY"
+              DELAY=$((DELAY * 2))
+            fi
+          done
+          
+          if [ -n "$ARTIFACT_ID" ]; then
+            ARTIFACT_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}"
+            echo "✅ Artifact URL: $ARTIFACT_URL"
+          else
+            echo "⚠️ Could not fetch artifact URL, using run page"
+            ARTIFACT_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
+          fi
+          
+          # Set locale for thousand separator formatting
+          export LC_NUMERIC=en_US.UTF-8
+          
+          # Calculate sizes in different units (KB with no decimals, rounded)
+          ORIGINAL_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE}/1024}")
+          COMPRESSED_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${COMPRESSED_SIZE}/1024}")
+          FLASH_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_SIZE_MB}*1024}")
+          FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_TOTAL_KB} - ${COMPRESSED_SIZE_KB}}")
+          
+          # Calculate flash usage bars for visualization (with bounds checking)
+          FLASH_BARS=$((FLASH_USAGE_PCT / 2))
+          [ $FLASH_BARS -lt 0 ] && FLASH_BARS=0
+          [ $FLASH_BARS -gt 50 ] && FLASH_BARS=50
+          
+          # Extract key board parameters for display
+          # Default values: CPU=80MHz, Crystal=26MHz, Flash=40MHz/QIO
+          CRYSTAL_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'CrystalFreq=\K[^,]+' || echo "26")
+          FLASH_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'FlashFreq=\K[^,]+' || echo "40")
+          FLASH_MODE=$(echo "$BOARD_PARAMS" | grep -oP 'FlashMode=\K[^,]+' || echo "qio")
+          CPU_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'xtal=\K[^,]+' || echo "80")
+          
+          # Create the summary
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # ✅ Build successful
+          
+          The firmware has been compiled successfully and is ready for deployment.
+          
+          ## 📦 Project Information
+          
+          | Property | Value |
+          |----------|-------|
+          | 📝 **Sketch Name** | **\`${SKETCH_NAME}\`** |
+          | 🎯 **Board** | \`esp8266:esp8266:generic\` |
+          | 💾 **Flash Size** | **${FLASH_SIZE_MB} MB** |
+          | 🕐 **Build Time** | ${BUILD_TIME} |
+          | 🔖 **Commit** | [\`${COMMIT_SHA_FULL}\`](https://github.com/${REPO}/commit/${COMMIT_SHA_FULL}) |
+          
+          <details>
+          <summary>⚙️ Frequency Configuration (click to expand)</summary>
+          
+          | Property | Value |
+          |----------|-------|
+          | ⚡ **CPU Frequency** | ${CPU_FREQ} MHz |
+          | 🔮 **Crystal Frequency** | ${CRYSTAL_FREQ} MHz |
+          | 📡 **Flash Mode** | ${FLASH_MODE^^} @ ${FLASH_FREQ} MHz |
+          
+          </details>
+
+          <details>
+          <summary>🔧 Build Configuration (Click to expand)</summary>
+          
+          ### Build Flags
+          \`\`\`
+          ${BUILD_FLAGS}
+          \`\`\`
+          
+          ### Board Parameters
+          \`\`\`
+          ${BOARD_PARAMS}
+          \`\`\`
+          
+          </details>
+          
+          ## 💾 Flash Memory Usage
+          
+          | Metric | Value |
+          |--------|-------|
+          | 📊 **Flash Usage** | ![${FLASH_USAGE_PCT}% Used](https://geps.dev/progress/${FLASH_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) |
+          | ✅ **Available Space** | ${FLASH_AVAILABLE_KB} KB |
+          | 📦 **Total Flash** | ${FLASH_TOTAL_KB} KB |
+          
+          **Usage Visualization:**
+          
+          \`\`\`
+          Flash: [$(
+            # Print filled bars
+            [ $FLASH_BARS -gt 0 ] && printf '█%.0s' $(seq 1 $FLASH_BARS)
+            
+            # Print empty bars
+            EMPTY=$((50 - $FLASH_BARS))
+            [ $EMPTY -gt 0 ] && printf '░%.0s' $(seq 1 $EMPTY)
+          )] ${FLASH_USAGE_PCT}%
+          \`\`\`
+          
+          ## 📊 Binary File Details
+          
+          | 📦 File Type | Size | 🔐 MD5 Hash | 🔗 Download URL |
+          |---------------|------|--------------|-----------------|
+          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** ($(printf "%'d" ${ORIGINAL_SIZE}) bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
+          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** ($(printf "%'d" ${COMPRESSED_SIZE}) bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
+          
+          - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
+          
+          **Compression Visualization:**
+          
+          ![${COMPRESSION_RATIO}% Compression](https://geps.dev/progress/${COMPRESSION_RATIO}?dangerColor=28a745&warningColor=ffc107&successColor=dc3545)
+          
+          ### 📦 Artifact Contents
+          
+          The compiled and compressed firmware binary is available as a workflow artifact along with MD5 checksums and build metadata.
+          - \`${SKETCH_NAME}.bin\` - Compressed firmware binary (gzip)
+          - \`${SKETCH_NAME}.bin.md5\` - MD5 checksums for verification
+          - \`build-info.txt\` - Build configuration and metadata
+          
+          ## ✅ Integrity Verification
+          
+          To verify the firmware integrity after download, use one of these methods:
+          
+          ### Verify Compressed Binary (recommended)
+          \`\`\`bash
+          echo "${MD5_COMPRESSED}  ${SKETCH_NAME}.bin" | md5sum -c
+          \`\`\`
+          
+          ### Verify Original Binary (decompress first)
+          \`\`\`bash
+          gunzip -c ${SKETCH_NAME}.bin > ${SKETCH_NAME}.bin.uncompressed
+          echo "${MD5_UNCOMPRESSED}  ${SKETCH_NAME}.bin.uncompressed" | md5sum -c
+          \`\`\`
+          
+          ## 📚 Additional Information
+          
+          - **Build System:** [Arduino CLI](https://arduino.github.io/arduino-cli/)
+          - **Platform:** ESP8266 Arduino Core
+          - **Workflow:** [Build Workflow](.github/workflows/build.yml)
+          - **Repository:** [${REPO}](https://github.com/${REPO})
+          
+          ---
+          
+          ✨ *Automatically built by GitHub Actions • [View Run](https://github.com/${REPO}/actions/runs/${RUN_ID})*
+          EOF
+          
+          echo "✅ Build summary generated successfully"
