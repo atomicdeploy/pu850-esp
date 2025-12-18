@@ -128,8 +128,8 @@ jobs:
           if command -v jq &> /dev/null; then
             ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.name == "firmware") | .id' 2>/dev/null || echo "")
           else
-            # Fallback to grep-based parsing
-            ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep '"id":' | head -1 | grep -oP '\d+' || echo "")
+            # Fallback to grep-based parsing, match the numeric value of the "id" field specifically
+            ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep -m1 -oP '"id":\s*\K[0-9]+' || echo "")
           fi
           
           if [ -n "$ARTIFACT_ID" ]; then
