@@ -121,21 +121,33 @@ jobs:
           # Fetch artifact download URL using GitHub API
           echo "🔍 Fetching artifact download URL..."
           ARTIFACT_URL=""
+          MAX_RETRIES=5
+          DELAY=2
           
-          # Wait a moment for artifact to be available
-          sleep 2
+          # Retry fetching artifacts until the "firmware" artifact is available or retries are exhausted
+          for ((i=1; i<=MAX_RETRIES; i++)); do
+            echo "🔁 Attempt $i to fetch artifacts for run ${RUN_ID}..."
+            ARTIFACTS_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts")
           
-          # Get artifacts list for this workflow run
-          ARTIFACTS_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
-            "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts")
+            # Extract the artifact ID for "firmware" artifact using jq if available, otherwise grep
+            if command -v jq &> /dev/null; then
+              ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.name == "firmware") | .id' 2>/dev/null || echo "")
+            else
+              # Fallback to grep-based parsing
+              ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep '"id":' | head -1 | grep -oP '\d+' || echo "")
+            fi
           
-          # Extract the artifact ID for "firmware" artifact using jq if available, otherwise grep
-          if command -v jq &> /dev/null; then
-            ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.name == "firmware") | .id' 2>/dev/null || echo "")
-          else
-            # Fallback to grep-based parsing, match the numeric value of the "id" field specifically
-            ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep -m1 -oP '"id":\s*\K[0-9]+' || echo "")
-          fi
+            if [ -n "$ARTIFACT_ID" ]; then
+              break
+            fi
+          
+            if [ "$i" -lt "$MAX_RETRIES" ]; then
+              echo "⏱️ Artifact not found yet, waiting ${DELAY}s before retrying..."
+              sleep "$DELAY"
+              DELAY=$((DELAY * 2))
+            fi
+          done
           
           if [ -n "$ARTIFACT_ID" ]; then
             ARTIFACT_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}"
