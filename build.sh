@@ -545,8 +545,8 @@ COMPRESSED_SIZE=${compressedSize}
 COMPRESSION_RATIO=${compressionRatio}
 FLASH_SIZE_MB=${flashSize}
 FLASH_USAGE_PCT=${totalUsage}
-BOARD_PARAMS="${board_params}"
-BUILD_FLAGS="${build_flags}"
+BOARD_PARAMS='${board_params}'
+BUILD_FLAGS='${build_flags}'
 EOF
 	displayInfo "Build metadata exported to ${BUILD_INFO_FILE}"
 fi
