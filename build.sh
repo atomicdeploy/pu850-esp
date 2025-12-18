@@ -551,11 +551,15 @@ if [ "$IS_CI" = "true" ]; then
 		ram_line=$(grep -i "Global variables use" "$log_file" | tail -1)
 		if [ -n "$ram_line" ]; then
 			# Extract used RAM (first number in bytes)
-			RAM_USED=$(echo "$ram_line" | grep -oP 'Global variables use \K[0-9]+' || echo "0")
+			# Try grep -oP first, fallback to sed if not available
+			RAM_USED=$(echo "$ram_line" | grep -oP 'Global variables use \K[0-9]+' 2>/dev/null || \
+			           echo "$ram_line" | sed -n 's/.*Global variables use \([0-9]\+\).*/\1/p' || echo "0")
 			# Extract total RAM (Maximum is XXXXX bytes)
-			RAM_TOTAL=$(echo "$ram_line" | grep -oP 'Maximum is \K[0-9]+' || echo "81920")
+			RAM_TOTAL=$(echo "$ram_line" | grep -oP 'Maximum is \K[0-9]+' 2>/dev/null || \
+			            echo "$ram_line" | sed -n 's/.*Maximum is \([0-9]\+\).*/\1/p' || echo "81920")
 			# Extract available RAM (leaving XXXXX bytes)
-			RAM_AVAILABLE=$(echo "$ram_line" | grep -oP 'leaving \K[0-9]+' || echo "0")
+			RAM_AVAILABLE=$(echo "$ram_line" | grep -oP 'leaving \K[0-9]+' 2>/dev/null || \
+			                echo "$ram_line" | sed -n 's/.*leaving \([0-9]\+\).*/\1/p' || echo "0")
 			# Calculate RAM usage percentage
 			if [ "$RAM_TOTAL" -gt 0 ]; then
 				RAM_USAGE_PCT=$((100 * RAM_USED / RAM_TOTAL))
