@@ -251,16 +251,16 @@ jobs:
           |--------------|---------|
           $(
             # Parse libraries from sketch.yaml and format as markdown table
-            grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+\([^)]+\)' | grep -v 'platform:' | while read -r line; do
+            grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+[(][^)]+[)]' | grep -v 'platform:' | while read -r line; do
               # Extract library name and version
-              lib_name=\$(echo "\$line" | sed -E 's/^\s*-\s*(.+)\s*\([^)]+\)\s*$/\1/' | sed 's/[[:space:]]*$//')
-              lib_version=\$(echo "\$line" | sed -E 's/.*\(([^)]+)\).*/\1/')
+              lib_name=\$(echo "\$line" | sed -E 's/^\s*-\s*(.+)\s*[(][^)]+[)]\s*$/\1/' | sed 's/[[:space:]]*$//')
+              lib_version=\$(echo "\$line" | sed -E 's/.*[(]([^)]+)[)].*/\1/')
               echo "          | \$lib_name | \`\$lib_version\` |"
             done
           )
           
           **Platform:**
-          - ESP8266 Arduino Core: \`$(grep 'platform: esp8266:esp8266' sketch.yaml | sed 's/.*(\([0-9.]*\)).*/\1/' || echo '3.1.2')\`
+          - ESP8266 Arduino Core: \`$(grep 'platform: esp8266:esp8266' sketch.yaml | sed 's/.*[(]\([0-9.]*\)[)].*/\1/' || echo '3.1.2')\`
           
           </details>
           
