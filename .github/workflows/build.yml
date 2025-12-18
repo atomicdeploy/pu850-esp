@@ -249,7 +249,7 @@ jobs:
           
           **Compression Visualization:**
           
-          ![*${COMPRESSION_RATIO}% Compression](https://geps.dev/progress/${COMPRESSION_RATIO}?dangerColor=28a745&warningColor=ffc107&successColor=dc3545)
+          ![${COMPRESSION_RATIO}% Compression](https://geps.dev/progress/${COMPRESSION_RATIO}?dangerColor=28a745&warningColor=ffc107&successColor=dc3545)
           
           ### 📦 Artifact Contents
           
