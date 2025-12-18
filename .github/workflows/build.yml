@@ -269,6 +269,9 @@ jobs:
           RAM_TOTAL_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_TOTAL}/1024}")
           RAM_USED_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_USED}/1024}")
           
+          # Compression saved space
+          COMPRESSION_SAVED_KB=$(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}")
+          
           # Create the summary
           cat >> $GITHUB_STEP_SUMMARY << EOF
           # ✅ Build successful
@@ -361,7 +364,7 @@ jobs:
           | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** (${ORIGINAL_SIZE} bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
           | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** (${COMPRESSED_SIZE} bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
           
-          - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
+          - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved ${COMPRESSION_SAVED_KB} KB, using gzip level 9)
           
           **Compression Visualization:**
           
