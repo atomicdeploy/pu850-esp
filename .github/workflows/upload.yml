@@ -36,6 +36,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: write
 
 jobs:
   # Wait for any in-progress builds to complete (manual trigger only)
