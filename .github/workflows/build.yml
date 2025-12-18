@@ -174,11 +174,14 @@ jobs:
             ARTIFACT_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
           fi
           
-          # Calculate sizes in different units
-          ORIGINAL_SIZE_KB=$(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE}/1024}")
-          COMPRESSED_SIZE_KB=$(awk "BEGIN {printf \"%.2f\", ${COMPRESSED_SIZE}/1024}")
+          # Set locale for thousand separator formatting
+          export LC_NUMERIC=en_US.UTF-8
+          
+          # Calculate sizes in different units (KB with no decimals, rounded)
+          ORIGINAL_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE}/1024}")
+          COMPRESSED_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${COMPRESSED_SIZE}/1024}")
           FLASH_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_SIZE_MB}*1024}")
-          FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.2f\", ${FLASH_TOTAL_KB} - ${COMPRESSED_SIZE_KB}}")
+          FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_TOTAL_KB} - ${COMPRESSED_SIZE_KB}}")
           
           # Calculate flash usage bars for visualization (with bounds checking)
           FLASH_BARS=$((FLASH_USAGE_PCT / 2))
@@ -259,10 +262,10 @@ jobs:
           
           | 📦 File Type | Size | 🔐 MD5 Hash | 🔗 Download URL |
           |---------------|------|--------------|-----------------|
-          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** _($(printf "%'d" ${ORIGINAL_SIZE}) bytes)_ | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
-          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** _($(printf "%'d" ${COMPRESSED_SIZE}) bytes)_ | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
+          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** ($(printf "%'d" ${ORIGINAL_SIZE}) bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
+          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** ($(printf "%'d" ${COMPRESSED_SIZE}) bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
           
-          - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
+          - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
           
           **Compression Visualization:**
           
