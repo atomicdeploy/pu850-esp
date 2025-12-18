@@ -311,8 +311,8 @@ jobs:
           
           | 📦 File Type | Size | 🔐 MD5 Hash | 🔗 Download URL |
           |---------------|------|--------------|-----------------|
-          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** ($(printf "%'d" ${ORIGINAL_SIZE}) bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
-          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** ($(printf "%'d" ${COMPRESSED_SIZE}) bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
+          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** (${ORIGINAL_SIZE} bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
+          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** (${COMPRESSED_SIZE} bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
           
           - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
           
