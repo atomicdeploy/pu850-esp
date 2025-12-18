@@ -60,31 +60,50 @@ jobs:
             LIBRARY_UPDATES=""
             PLATFORM_UPDATES=""
           else
-            # Extract library updates
+            # Extract library and platform updates from structured output
             LIBRARY_UPDATES=""
             LIBRARY_COUNT=0
-            while IFS= read -r line; do
-              if echo "$line" | grep -q "Library.*:.*->"; then
-                LIB_NAME=$(echo "$line" | sed -E 's/.*Library ([^:]+):.*/\1/')
-                OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
-                NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
-                LIBRARY_UPDATES="${LIBRARY_UPDATES}${LIB_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
-                LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
-              fi
-            done < <(grep "Library" upgrade_output.txt 2>/dev/null || true)
-            
-            # Extract platform updates
             PLATFORM_UPDATES=""
             PLATFORM_COUNT=0
-            while IFS= read -r line; do
-              if echo "$line" | grep -q "Platform.*:.*->"; then
-                PLATFORM_NAME=$(echo "$line" | sed -E 's/.*Platform ([^:]+):.*/\1/')
-                OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
-                NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
-                PLATFORM_UPDATES="${PLATFORM_UPDATES}${PLATFORM_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
-                PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
-              fi
-            done < <(grep "Platform" upgrade_output.txt 2>/dev/null || true)
+            
+            # Parse UPDATE_DETAILS section if it exists
+            if grep -q "UPDATE_DETAILS_START" upgrade_output.txt 2>/dev/null; then
+              # Extract details between markers
+              sed -n '/UPDATE_DETAILS_START/,/UPDATE_DETAILS_END/p' upgrade_output.txt | grep -v "UPDATE_DETAILS" | while IFS='|' read -r name old_ver new_ver repo_url; do
+                if [ -n "$name" ]; then
+                  if [ "$name" = "esp8266:esp8266" ]; then
+                    # Platform update
+                    PLATFORM_UPDATES="${PLATFORM_UPDATES}${name}|${old_ver}|${new_ver}|${repo_url}"$'\n'
+                    PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
+                  else
+                    # Library update
+                    LIBRARY_UPDATES="${LIBRARY_UPDATES}${name}|${old_ver}|${new_ver}|${repo_url}"$'\n'
+                    LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
+                  fi
+                fi
+              done
+            else
+              # Fallback: Extract from log output (legacy format without repo URLs)
+              while IFS= read -r line; do
+                if echo "$line" | grep -q "Library.*:.*->"; then
+                  LIB_NAME=$(echo "$line" | sed -E 's/.*Library ([^:]+):.*/\1/')
+                  OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
+                  NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
+                  LIBRARY_UPDATES="${LIBRARY_UPDATES}${LIB_NAME}|${OLD_VER}|${NEW_VER}|"$'\n'
+                  LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
+                fi
+              done < <(grep "Library" upgrade_output.txt 2>/dev/null || true)
+              
+              while IFS= read -r line; do
+                if echo "$line" | grep -q "Platform.*:.*->"; then
+                  PLATFORM_NAME=$(echo "$line" | sed -E 's/.*Platform ([^:]+):.*/\1/')
+                  OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
+                  NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
+                  PLATFORM_UPDATES="${PLATFORM_UPDATES}${PLATFORM_NAME}|${OLD_VER}|${NEW_VER}|https://github.com/esp8266/Arduino"$'\n'
+                  PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
+                fi
+              done < <(grep "Platform" upgrade_output.txt 2>/dev/null || true)
+            fi
           fi
           
           # Export to GITHUB_OUTPUT
@@ -155,12 +174,24 @@ jobs:
           # Add platform updates table if any
           if [ "$PLATFORM_COUNT" -gt 0 ]; then
             PR_BODY="${PR_BODY}## 🔧 Platform Updates"$'\n\n'
-            PR_BODY="${PR_BODY}| Platform | Previous Version | New Version |"$'\n'
-            PR_BODY="${PR_BODY}|----------|------------------|-------------|"$'\n'
+            PR_BODY="${PR_BODY}| Platform | Previous Version | New Version | Changelog |"$'\n'
+            PR_BODY="${PR_BODY}|----------|------------------|-------------|-----------|"$'\n'
             
-            while IFS='|' read -r name old new; do
+            while IFS='|' read -r name old new repo_url; do
               if [ -n "$name" ]; then
-                PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` |"$'\n'
+                # Create changelog link
+                CHANGELOG_LINK=""
+                if [ -n "$repo_url" ]; then
+                  # Remove .git suffix if present
+                  repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
+                  CHANGELOG_LINK="[Compare](${repo_clean}/compare/${old}...${new})"
+                fi
+                
+                if [ -n "$CHANGELOG_LINK" ]; then
+                  PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` | ${CHANGELOG_LINK} |"$'\n'
+                else
+                  PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` | - |"$'\n'
+                fi
               fi
             done <<< "${{ steps.check_updates.outputs.platform_updates }}"
             
@@ -170,12 +201,24 @@ jobs:
           # Add library updates table if any
           if [ "$LIBRARY_COUNT" -gt 0 ]; then
             PR_BODY="${PR_BODY}## 📚 Library Updates"$'\n\n'
-            PR_BODY="${PR_BODY}| Library | Previous Version | New Version |"$'\n'
-            PR_BODY="${PR_BODY}|---------|------------------|-------------|"$'\n'
+            PR_BODY="${PR_BODY}| Library | Previous Version | New Version | Changelog |"$'\n'
+            PR_BODY="${PR_BODY}|---------|------------------|-------------|-----------|"$'\n'
             
-            while IFS='|' read -r name old new; do
+            while IFS='|' read -r name old new repo_url; do
               if [ -n "$name" ]; then
-                PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` |"$'\n'
+                # Create changelog link
+                CHANGELOG_LINK=""
+                if [ -n "$repo_url" ]; then
+                  # Remove .git suffix if present
+                  repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
+                  CHANGELOG_LINK="[Compare](${repo_clean}/compare/${old}...${new})"
+                fi
+                
+                if [ -n "$CHANGELOG_LINK" ]; then
+                  PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` | ${CHANGELOG_LINK} |"$'\n'
+                else
+                  PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` | - |"$'\n'
+                fi
               fi
             done <<< "${{ steps.check_updates.outputs.library_updates }}"
             
