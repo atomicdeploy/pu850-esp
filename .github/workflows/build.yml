@@ -221,7 +221,7 @@ jobs:
           
           | Metric | Value |
           |--------|-------|
-          | 📊 **Flash Usage** | ![*${FLASH_USAGE_PCT}% Used](https://geps.dev/progress/${FLASH_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) |
+          | 📊 **Flash Usage** | ![${FLASH_USAGE_PCT}% Used](https://geps.dev/progress/${FLASH_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) |
           | ✅ **Available Space** | ${FLASH_AVAILABLE_KB} KB |
           | 📦 **Total Flash** | ${FLASH_TOTAL_KB} KB |
           
