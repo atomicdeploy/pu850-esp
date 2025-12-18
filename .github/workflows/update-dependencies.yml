@@ -52,31 +52,40 @@ jobs:
           fi
           
           # Parse update information for PR body generation
-          # Extract library updates
-          LIBRARY_UPDATES=""
-          LIBRARY_COUNT=0
-          while IFS= read -r line; do
-            if echo "$line" | grep -q "Library.*:.*->"; then
-              LIB_NAME=$(echo "$line" | sed -E 's/.*Library ([^:]+):.*/\1/')
-              OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
-              NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
-              LIBRARY_UPDATES="${LIBRARY_UPDATES}${LIB_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
-              LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
-            fi
-          done < <(grep "Library" upgrade_output.txt 2>/dev/null || true)
-          
-          # Extract platform updates
-          PLATFORM_UPDATES=""
-          PLATFORM_COUNT=0
-          while IFS= read -r line; do
-            if echo "$line" | grep -q "Platform.*:.*->"; then
-              PLATFORM_NAME=$(echo "$line" | sed -E 's/.*Platform ([^:]+):.*/\1/')
-              OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
-              NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
-              PLATFORM_UPDATES="${PLATFORM_UPDATES}${PLATFORM_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
-              PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
-            fi
-          done < <(grep "Platform" upgrade_output.txt 2>/dev/null || true)
+          # Verify upgrade_output.txt exists before processing
+          if [ ! -f upgrade_output.txt ]; then
+            echo "⚠️ Warning: upgrade_output.txt not found, skipping update parsing" >&2
+            LIBRARY_COUNT=0
+            PLATFORM_COUNT=0
+            LIBRARY_UPDATES=""
+            PLATFORM_UPDATES=""
+          else
+            # Extract library updates
+            LIBRARY_UPDATES=""
+            LIBRARY_COUNT=0
+            while IFS= read -r line; do
+              if echo "$line" | grep -q "Library.*:.*->"; then
+                LIB_NAME=$(echo "$line" | sed -E 's/.*Library ([^:]+):.*/\1/')
+                OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
+                NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
+                LIBRARY_UPDATES="${LIBRARY_UPDATES}${LIB_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
+                LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
+              fi
+            done < <(grep "Library" upgrade_output.txt 2>/dev/null || true)
+            
+            # Extract platform updates
+            PLATFORM_UPDATES=""
+            PLATFORM_COUNT=0
+            while IFS= read -r line; do
+              if echo "$line" | grep -q "Platform.*:.*->"; then
+                PLATFORM_NAME=$(echo "$line" | sed -E 's/.*Platform ([^:]+):.*/\1/')
+                OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
+                NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
+                PLATFORM_UPDATES="${PLATFORM_UPDATES}${PLATFORM_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
+                PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
+              fi
+            done < <(grep "Platform" upgrade_output.txt 2>/dev/null || true)
+          fi
           
           # Export to GITHUB_OUTPUT
           {
