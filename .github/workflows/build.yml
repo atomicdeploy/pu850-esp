@@ -180,9 +180,9 @@ jobs:
           
           | Property | Value |
           |----------|-------|
-          | 📝 **Sketch Name** | \`${SKETCH_NAME}\` |
+          | 📝 **Sketch Name** | **\`${SKETCH_NAME}\`** |
           | 🎯 **Board** | \`esp8266:esp8266:generic\` |
-          | 💾 **Flash Size** | ${FLASH_SIZE_MB} MB |
+          | 💾 **Flash Size** | **${FLASH_SIZE_MB} MB** |
           | 🕐 **Build Time** | ${BUILD_TIME} |
           | 🔖 **Commit** | [\`${COMMIT_SHA_FULL}\`](https://github.com/${REPO}/commit/${COMMIT_SHA_FULL}) |
           
@@ -216,25 +216,43 @@ jobs:
           
           | Metric | Value |
           |--------|-------|
-          | 📊 **Flash Usage** | ![*${FLASH_USAGE_PCT}% Used](https://geps.dev/progress/${FLASH_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) of ${FLASH_SIZE_MB} MB |
+          | 📊 **Flash Usage** | ![*${FLASH_USAGE_PCT}% Used](https://geps.dev/progress/${FLASH_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) |
           | ✅ **Available Space** | ${FLASH_AVAILABLE_KB} KB |
           | 📦 **Total Flash** | ${FLASH_TOTAL_KB} KB |
           
           ## 📊 Binary File Details
           
           | 📦 File Type | Size | 🔐 MD5 Hash | 🔗 Download URL |
-          |---------------|-----|--------------|-----------------|
-          | 📄 **Original Binary** | ${ORIGINAL_SIZE_KB} (_${ORIGINAL_SIZE}_ bytes) | \`${MD5_UNCOMPRESSED}\` | |
-          | 🗄️ **Compressed (gzip)** | ${COMPRESSED_SIZE_KB} (_${COMPRESSED_SIZE}_ bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
+          |---------------|------|--------------|-----------------|
+          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** _(${ORIGINAL_SIZE} bytes)_ | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
+          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** _(${COMPRESSED_SIZE} bytes)_ | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
           
-          ### Compression Statistics
+          - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
           
-          - **Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
+          **Usage Visualization:**
           
-          The compiled and compressed firmware binary is available as a workflow artifact along with MD5 checksums and build metadata.
+          \`\`\`
+          [$(
+            # Calculate bars with bounds checking
+            FLASH_BARS=$((FLASH_USAGE_PCT / 2))
+            if [ "\$FLASH_BARS" -lt 0 ]; then FLASH_BARS=0; elif [ "\$FLASH_BARS" -gt 50 ]; then FLASH_BARS=50; fi
+            
+            # Print filled bars
+            if [ "\$FLASH_BARS" -gt 0 ]; then
+              printf '█%.0s' \$(seq 1 "\$FLASH_BARS")
+            fi
+            
+            # Print empty bars
+            EMPTY_BARS=$((50 - FLASH_BARS))
+            if [ "\$EMPTY_BARS" -gt 0 ]; then
+              printf '░%.0s' \$(seq 1 "\$EMPTY_BARS")
+            fi
+          )] ${FLASH_USAGE_PCT}%
+          \`\`\`
           
           ### 📦 Artifact Contents
           
+          The compiled and compressed firmware binary is available as a workflow artifact along with MD5 checksums and build metadata.
           - \`${SKETCH_NAME}.bin\` - Compressed firmware binary (gzip)
           - \`${SKETCH_NAME}.bin.md5\` - MD5 checksums for verification
           - \`build-info.txt\` - Build configuration and metadata
@@ -252,27 +270,6 @@ jobs:
           \`\`\`bash
           gunzip -c ${SKETCH_NAME}.bin > ${SKETCH_NAME}.bin.uncompressed
           echo "${MD5_UNCOMPRESSED}  ${SKETCH_NAME}.bin.uncompressed" | md5sum -c
-          \`\`\`
-
-          ### Usage Visualization
-          
-          \`\`\`
-          Flash: [$(
-            # Calculate bars with bounds checking
-            FLASH_BARS=$((FLASH_USAGE_PCT / 2))
-            if [ "\$FLASH_BARS" -lt 0 ]; then FLASH_BARS=0; elif [ "\$FLASH_BARS" -gt 50 ]; then FLASH_BARS=50; fi
-            
-            # Print filled bars
-            if [ "\$FLASH_BARS" -gt 0 ]; then
-              printf '█%.0s' \$(seq 1 "\$FLASH_BARS")
-            fi
-            
-            # Print empty bars
-            EMPTY_BARS=$((50 - FLASH_BARS))
-            if [ "\$EMPTY_BARS" -gt 0 ]; then
-              printf '░%.0s' \$(seq 1 "\$EMPTY_BARS")
-            fi
-          )] ${FLASH_USAGE_PCT}%
           \`\`\`
           
           ## 📚 Additional Information
