@@ -188,6 +188,11 @@ jobs:
           [ $FLASH_BARS -lt 0 ] && FLASH_BARS=0
           [ $FLASH_BARS -gt 50 ] && FLASH_BARS=50
           
+          # Calculate RAM usage bars for visualization (with bounds checking)
+          RAM_BARS=$((RAM_USAGE_PCT / 2))
+          [ $RAM_BARS -lt 0 ] && RAM_BARS=0
+          [ $RAM_BARS -gt 50 ] && RAM_BARS=50
+          
           # Extract key board parameters for display
           # Default values: CPU=80MHz, Crystal=26MHz, Flash=40MHz/QIO
           CRYSTAL_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'CrystalFreq=\K[^,]+' || echo "26")
@@ -293,17 +298,12 @@ jobs:
           
           \`\`\`
           RAM:   [$(
-            # Calculate RAM usage bars (50 characters wide)
-            RAM_BARS=$((RAM_USAGE_PCT / 2))
-            [ \$RAM_BARS -lt 0 ] && RAM_BARS=0
-            [ \$RAM_BARS -gt 50 ] && RAM_BARS=50
-            
             # Print filled bars
-            [ \$RAM_BARS -gt 0 ] && printf '█%.0s' \$(seq 1 \$RAM_BARS)
+            [ $RAM_BARS -gt 0 ] && printf '█%.0s' $(seq 1 $RAM_BARS)
             
             # Print empty bars
-            EMPTY=\$((50 - \$RAM_BARS))
-            [ \$EMPTY -gt 0 ] && printf '░%.0s' \$(seq 1 \$EMPTY)
+            EMPTY=$((50 - RAM_BARS))
+            [ $EMPTY -gt 0 ] && printf '░%.0s' $(seq 1 $EMPTY)
           )] ${RAM_USAGE_PCT}%
           \`\`\`
           
