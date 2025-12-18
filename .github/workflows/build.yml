@@ -193,6 +193,15 @@ jobs:
           [ $RAM_BARS -lt 0 ] && RAM_BARS=0
           [ $RAM_BARS -gt 50 ] && RAM_BARS=50
           
+          # Parse library list from sketch.yaml before heredoc to avoid command substitution issues
+          LIBRARY_LIST=$(grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+\([^)]+\)' | grep -v 'platform:' | while read -r line; do
+            # Extract library name (before opening paren)
+            lib_name=$(echo "$line" | sed 's/^[[:space:]]*-[[:space:]]*//' | sed 's/[[:space:]]*(.*$//')
+            # Extract version (between parens)
+            lib_version=$(echo "$line" | sed 's/.*(\([^)]*\)).*/\1/')
+            echo "          | $lib_name | \`$lib_version\` |"
+          done)
+          
           # Extract key board parameters for display
           # Default values: CPU=80MHz, Crystal=26MHz, Flash=40MHz/QIO
           CRYSTAL_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'CrystalFreq=\K[^,]+' || echo "26")
@@ -249,15 +258,7 @@ jobs:
           
           | Library Name | Version |
           |--------------|---------|
-          $(
-            # Parse libraries from sketch.yaml and format as markdown table
-            grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+[(][^)]+[)]' | grep -v 'platform:' | while read -r line; do
-              # Extract library name and version using awk instead of sed to avoid parentheses issues
-              lib_name=\$(echo "\$line" | awk -F'[(]' '{print \$1}' | sed 's/^[[:space:]]*-[[:space:]]*//' | sed 's/[[:space:]]*$//')
-              lib_version=\$(echo "\$line" | awk -F'[()]' '{print \$2}')
-              echo "          | \$lib_name | \`\$lib_version\` |"
-            done
-          )
+          ${LIBRARY_LIST}
           
           **Platform:**
           - ESP8266 Arduino Core: \`$(grep 'platform: esp8266:esp8266' sketch.yaml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo '3.1.2')\`
@@ -302,7 +303,7 @@ jobs:
             [ $RAM_BARS -gt 0 ] && printf '█%.0s' $(seq 1 $RAM_BARS)
             
             # Print empty bars
-            EMPTY=$((50 - RAM_BARS))
+            EMPTY=$((50 - $RAM_BARS))
             [ $EMPTY -gt 0 ] && printf '░%.0s' $(seq 1 $EMPTY)
           )] ${RAM_USAGE_PCT}%
           \`\`\`
