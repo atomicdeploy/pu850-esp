@@ -79,9 +79,143 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
+      - name: Generate build summary
+        working-directory: ASA0002E
+        run: |
+          # Load build information
+          source Build/build-info.txt
+          
+          BIN_FILE="Build/${SKETCH_NAME}.bin"
+          MD5_FILE="Build/${SKETCH_NAME}.bin.md5"
+          
+          # Read MD5 hashes
+          MD5_UNCOMPRESSED=$(grep -v "compressed" "$MD5_FILE" | awk '{print $1}')
+          MD5_COMPRESSED=$(grep "compressed" "$MD5_FILE" | awk '{print $1}')
+          
+          # Get build timestamp
+          BUILD_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          # Get repository info
+          REPO="${GITHUB_REPOSITORY}"
+          COMMIT_SHA="${GITHUB_SHA:0:7}"
+          COMMIT_SHA_FULL="${GITHUB_SHA}"
+          RUN_ID="${GITHUB_RUN_ID}"
+          
+          # Calculate sizes in different units
+          ORIGINAL_SIZE_KB=$(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE}/1024}")
+          COMPRESSED_SIZE_KB=$(awk "BEGIN {printf \"%.2f\", ${COMPRESSED_SIZE}/1024}")
+          FLASH_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_SIZE_MB}*1024}")
+          FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.2f\", ${FLASH_TOTAL_KB} - ${COMPRESSED_SIZE_KB}}")
+          
+          # Extract key board parameters for display
+          CRYSTAL_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'CrystalFreq=\K[^,]+' || echo "26")
+          FLASH_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'FlashFreq=\K[^,]+' || echo "40")
+          FLASH_MODE=$(echo "$BOARD_PARAMS" | grep -oP 'FlashMode=\K[^,]+' || echo "qio")
+          CPU_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'xtal=\K[^,]+' || echo "80")
+          
+          # Create the summary
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 🎉 Build Successful!
+          
+          The firmware has been compiled successfully and is ready for deployment.
+          
+          ## 📦 Firmware Information
+          
+          | Property | Value |
+          |----------|-------|
+          | 📝 **Sketch Name** | \`${SKETCH_NAME}\` |
+          | 🎯 **Board** | \`esp8266:esp8266:generic\` |
+          | ⚡ **CPU Frequency** | ${CPU_FREQ} MHz |
+          | 🔮 **Crystal** | ${CRYSTAL_FREQ} MHz |
+          | 💾 **Flash Size** | ${FLASH_SIZE_MB} MB |
+          | 📡 **Flash Mode** | ${FLASH_MODE^^} @ ${FLASH_FREQ} MHz |
+          | 🕐 **Build Time** | ${BUILD_TIME} |
+          | 🔖 **Commit** | [\`${COMMIT_SHA}\`](https://github.com/${REPO}/commit/${COMMIT_SHA_FULL}) |
+          
+          ## 📊 Binary File Details
+          
+          | File Type | Size (bytes) | Size (KB) | MD5 Hash |
+          |-----------|--------------|-----------|----------|
+          | 📄 **Original Binary** | ${ORIGINAL_SIZE} | ${ORIGINAL_SIZE_KB} | \`${MD5_UNCOMPRESSED}\` |
+          | 🗜️ **Compressed (gzip)** | ${COMPRESSED_SIZE} | ${COMPRESSED_SIZE_KB} | \`${MD5_COMPRESSED}\` |
+          
+          ### 📈 Compression Statistics
+          
+          - **Compression Ratio:** ${COMPRESSION_RATIO}% (saved $(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB)
+          - **Compression Method:** gzip level 9
+          
+          ## 💾 Flash Memory Usage
+          
+          | Metric | Value |
+          |--------|-------|
+          | 🗜️ **Compressed Size** | ${COMPRESSED_SIZE_KB} KB |
+          | 📊 **Flash Usage** | ${FLASH_USAGE_PCT}% of ${FLASH_SIZE_MB} MB |
+          | ✅ **Available Space** | ${FLASH_AVAILABLE_KB} KB |
+          | 📦 **Total Flash** | ${FLASH_TOTAL_KB} KB |
+          
+          ### 📊 Usage Visualization
+          
+          \`\`\`
+          Flash: [$(printf '█%.0s' $(seq 1 $((FLASH_USAGE_PCT/2))))$(printf '░%.0s' $(seq 1 $((50-FLASH_USAGE_PCT/2))))] ${FLASH_USAGE_PCT}%
+          \`\`\`
+          
+          ## 🔧 Build Configuration
+          
+          <details>
+          <summary>Click to expand build flags and parameters</summary>
+          
+          ### Build Flags
+          \`\`\`
+          ${BUILD_FLAGS}
+          \`\`\`
+          
+          ### Board Parameters
+          \`\`\`
+          ${BOARD_PARAMS}
+          \`\`\`
+          
+          </details>
+          
+          ## 📥 Download Firmware
+          
+          🔗 **[Download Firmware Artifact](https://github.com/${REPO}/actions/runs/${RUN_ID})**
+          
+          The compiled and compressed firmware binary is available as a workflow artifact.
+          
+          ## 🔐 Integrity Verification
+          
+          To verify the firmware integrity after download, use one of these methods:
+          
+          ### Verify Compressed Binary (recommended)
+          \`\`\`bash
+          echo "${MD5_COMPRESSED}  ${SKETCH_NAME}.bin" | md5sum -c
+          \`\`\`
+          
+          ### Verify Original Binary (decompress first)
+          \`\`\`bash
+          gunzip -c ${SKETCH_NAME}.bin > ${SKETCH_NAME}.bin.uncompressed
+          echo "${MD5_UNCOMPRESSED}  ${SKETCH_NAME}.bin.uncompressed" | md5sum -c
+          \`\`\`
+          
+          ## 📚 Additional Information
+          
+          - **Build System:** [Arduino CLI](https://arduino.github.io/arduino-cli/)
+          - **Platform:** ESP8266 Arduino Core
+          - **Workflow:** [Build Workflow](.github/workflows/build.yml)
+          - **Repository:** [${REPO}](https://github.com/${REPO})
+          
+          ---
+          
+          ✨ *Automatically built by GitHub Actions • [View Run](https://github.com/${REPO}/actions/runs/${RUN_ID})*
+          EOF
+          
+          echo "✅ Build summary generated successfully"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v6
         with:
           name: firmware
-          path: ASA0002E/Build/*.bin
+          path: |
+            ASA0002E/Build/*.bin
+            ASA0002E/Build/*.md5
           if-no-files-found: error

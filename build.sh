@@ -535,4 +535,20 @@ end_time=$(date +%s.%N)
 echo -e "\033[0m"
 elapsedTime "$start_time" "$end_time"
 
+# Export build metadata for CI (if running in CI)
+if [ "$IS_CI" = "true" ]; then
+	BUILD_INFO_FILE="${VSCA_BUILD_DIR}/build-info.txt"
+	cat > "$BUILD_INFO_FILE" << EOF
+SKETCH_NAME=${VSCA_SKETCH}
+ORIGINAL_SIZE=${size}
+COMPRESSED_SIZE=${compressedSize}
+COMPRESSION_RATIO=${compressionRatio}
+FLASH_SIZE_MB=${flashSize}
+FLASH_USAGE_PCT=${totalUsage}
+BOARD_PARAMS=${board_params}
+BUILD_FLAGS=${build_flags}
+EOF
+	displayInfo "Build metadata exported to ${BUILD_INFO_FILE}"
+fi
+
 exit 0
