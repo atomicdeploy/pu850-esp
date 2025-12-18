@@ -252,9 +252,9 @@ jobs:
           $(
             # Parse libraries from sketch.yaml and format as markdown table
             grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+[(][^)]+[)]' | grep -v 'platform:' | while read -r line; do
-              # Extract library name and version
-              lib_name=\$(echo "\$line" | sed -E 's/^\s*-\s*(.+)\s*[(][^)]+[)]\s*$/\1/' | sed 's/[[:space:]]*$//')
-              lib_version=\$(echo "\$line" | sed -E 's/.*[(]([^)]+)[)].*/\1/')
+              # Extract library name and version using awk instead of sed to avoid parentheses issues
+              lib_name=\$(echo "\$line" | awk -F'[(]' '{print \$1}' | sed 's/^[[:space:]]*-[[:space:]]*//' | sed 's/[[:space:]]*$//')
+              lib_version=\$(echo "\$line" | awk -F'[()]' '{print \$2}')
               echo "          | \$lib_name | \`\$lib_version\` |"
             done
           )
