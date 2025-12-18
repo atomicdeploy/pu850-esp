@@ -232,20 +232,20 @@ jobs:
           **Usage Visualization:**
           
           \`\`\`
-          [$(
+          Flash: [$(
             # Calculate bars with bounds checking
-            FLASH_BARS=$((FLASH_USAGE_PCT / 2))
-            if [ "\$FLASH_BARS" -lt 0 ]; then FLASH_BARS=0; elif [ "\$FLASH_BARS" -gt 50 ]; then FLASH_BARS=50; fi
+            BARS=\$((${FLASH_USAGE_PCT} / 2))
+            if [ \$BARS -lt 0 ]; then BARS=0; elif [ \$BARS -gt 50 ]; then BARS=50; fi
             
             # Print filled bars
-            if [ "\$FLASH_BARS" -gt 0 ]; then
-              printf '█%.0s' \$(seq 1 "\$FLASH_BARS")
+            if [ \$BARS -gt 0 ]; then
+              printf '█%.0s' \$(seq 1 \$BARS)
             fi
             
             # Print empty bars
-            EMPTY_BARS=$((50 - FLASH_BARS))
-            if [ "\$EMPTY_BARS" -gt 0 ]; then
-              printf '░%.0s' \$(seq 1 "\$EMPTY_BARS")
+            EMPTY=\$((50 - BARS))
+            if [ \$EMPTY -gt 0 ]; then
+              printf '░%.0s' \$(seq 1 \$EMPTY)
             fi
           )] ${FLASH_USAGE_PCT}%
           \`\`\`
