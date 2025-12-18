@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          # Clone to ASA0002E directory to match sketch name (Arduino CLI requirement)
+          # Clone to a directory with the same name to match the sketch file (Arduino CLI requirement)
           path: ASA0002E
 
       - name: Install Arduino CLI
@@ -155,11 +155,11 @@ jobs:
           
           # Create the summary
           cat >> $GITHUB_STEP_SUMMARY << EOF
-          # 🎉 Build Successful!
+          # ✅ Build successful
           
           The firmware has been compiled successfully and is ready for deployment.
           
-          ## 📦 Firmware Information
+          ## 📦 Project Information
           
           | Property | Value |
           |----------|-------|
@@ -179,40 +179,9 @@ jobs:
           | 📡 **Flash Mode** | ${FLASH_MODE^^} @ ${FLASH_FREQ} MHz |
           
           </details>
-          
-          ## 📊 Binary File Details
-          
-          | File Type | Size (bytes) | Size (KB) | MD5 Hash |
-          |-----------|--------------|-----------|----------|
-          | 📄 **Original Binary** | ${ORIGINAL_SIZE} | ${ORIGINAL_SIZE_KB} | \`${MD5_UNCOMPRESSED}\` |
-          | 🗜️ **Compressed (gzip)** | ${COMPRESSED_SIZE} | ${COMPRESSED_SIZE_KB} | \`${MD5_COMPRESSED}\` |
-          
-          ### 📈 Compression Statistics
-          
-          - **Compression Ratio:** ${COMPRESSION_RATIO}% (saved $(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB)
-          - **Compression Method:** gzip level 9
-          
-          ## 💾 Flash Memory Usage
-          
-          | Metric | Value |
-          |--------|-------|
-          | 🗜️ **Compressed Size** | ${COMPRESSED_SIZE_KB} KB |
-          | 📊 **Flash Usage** | ${FLASH_USAGE_PCT}% of ${FLASH_SIZE_MB} MB |
-          | ✅ **Available Space** | ${FLASH_AVAILABLE_KB} KB |
-          | 📦 **Total Flash** | ${FLASH_TOTAL_KB} KB |
-          
-          ### 📊 Usage Visualization
-          
-          ![Progress](https://geps.dev/progress/${FLASH_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745)
-          
-          \`\`\`
-          Flash: [$(printf '█%.0s' $(seq 1 $((FLASH_USAGE_PCT/2))))$(printf '░%.0s' $(seq 1 $((50-FLASH_USAGE_PCT/2))))] ${FLASH_USAGE_PCT}%
-          \`\`\`
-          
-          ## 🔧 Build Configuration
-          
+
           <details>
-          <summary>Click to expand build flags and parameters</summary>
+          <summary>🔧 Build Configuration (Click to expand)</summary>
           
           ### Build Flags
           \`\`\`
@@ -226,9 +195,24 @@ jobs:
           
           </details>
           
-          ## 📥 Download Firmware
+          ## 💾 Flash Memory Usage
           
-          🔗 **[Download Firmware Artifact](${ARTIFACT_URL})**
+          | Metric | Value |
+          |--------|-------|
+          | 📊 **Flash Usage** | ![*${FLASH_USAGE_PCT}% Used](https://geps.dev/progress/${FLASH_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) of ${FLASH_SIZE_MB} MB |
+          | ✅ **Available Space** | ${FLASH_AVAILABLE_KB} KB |
+          | 📦 **Total Flash** | ${FLASH_TOTAL_KB} KB |
+          
+          ## 📊 Binary File Details
+          
+          | 📦 File Type | Size | 🔐 MD5 Hash | 🔗 Download URL |
+          |---------------|-----|--------------|-----------------|
+          | 📄 **Original Binary** | ${ORIGINAL_SIZE_KB} (_${ORIGINAL_SIZE}_ bytes) | \`${MD5_UNCOMPRESSED}\` | |
+          | 🗄️ **Compressed (gzip)** | ${COMPRESSED_SIZE_KB} (_${COMPRESSED_SIZE}_ bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
+          
+          ### Compression Statistics
+          
+          - **Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
           
           The compiled and compressed firmware binary is available as a workflow artifact along with MD5 checksums and build metadata.
           
@@ -237,13 +221,6 @@ jobs:
           - \`${SKETCH_NAME}.bin\` - Compressed firmware binary (gzip)
           - \`${SKETCH_NAME}.bin.md5\` - MD5 checksums for verification
           - \`build-info.txt\` - Build configuration and metadata
-          
-          ## 🔐 MD5 Checksums
-          
-          | Binary Type | MD5 Hash |
-          |-------------|----------|
-          | 📄 **Original Binary** (before compression) | \`${MD5_UNCOMPRESSED}\` |
-          | 🗜️ **Compressed Binary** (gzip) | \`${MD5_COMPRESSED}\` |
           
           ## ✅ Integrity Verification
           
@@ -258,6 +235,12 @@ jobs:
           \`\`\`bash
           gunzip -c ${SKETCH_NAME}.bin > ${SKETCH_NAME}.bin.uncompressed
           echo "${MD5_UNCOMPRESSED}  ${SKETCH_NAME}.bin.uncompressed" | md5sum -c
+          \`\`\`
+
+          ### Usage Visualization
+          
+          \`\`\`
+          Flash: [$(printf '█%.0s' $(seq 1 $((FLASH_USAGE_PCT/2))))$(printf '░%.0s' $(seq 1 $((50-FLASH_USAGE_PCT/2))))] ${FLASH_USAGE_PCT}%
           \`\`\`
           
           ## 📚 Additional Information
