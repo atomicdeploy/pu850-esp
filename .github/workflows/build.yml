@@ -79,8 +79,21 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
+      - name: Upload build artifacts
+        id: upload_artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: firmware
+          path: |
+            ASA0002E/Build/*.bin
+            ASA0002E/Build/*.md5
+            ASA0002E/Build/build-info.txt
+          if-no-files-found: error
+
       - name: Generate build summary
         working-directory: ASA0002E
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           # Load build information
           source Build/build-info.txt
@@ -97,9 +110,30 @@ jobs:
           
           # Get repository info
           REPO="${GITHUB_REPOSITORY}"
-          COMMIT_SHA="${GITHUB_SHA:0:7}"
           COMMIT_SHA_FULL="${GITHUB_SHA}"
           RUN_ID="${GITHUB_RUN_ID}"
+          
+          # Fetch artifact download URL using GitHub API
+          echo "🔍 Fetching artifact download URL..."
+          ARTIFACT_URL=""
+          
+          # Wait a moment for artifact to be available
+          sleep 2
+          
+          # Get artifacts list for this workflow run
+          ARTIFACTS_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
+            "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts")
+          
+          # Extract the artifact ID for "firmware" artifact
+          ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep '"id":' | head -1 | grep -oP '\d+')
+          
+          if [ -n "$ARTIFACT_ID" ]; then
+            ARTIFACT_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}/artifacts/${ARTIFACT_ID}"
+            echo "✅ Artifact URL: $ARTIFACT_URL"
+          else
+            echo "⚠️ Could not fetch artifact URL, using run page"
+            ARTIFACT_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
+          fi
           
           # Calculate sizes in different units
           ORIGINAL_SIZE_KB=$(awk "BEGIN {printf \"%.2f\", ${ORIGINAL_SIZE}/1024}")
@@ -125,12 +159,20 @@ jobs:
           |----------|-------|
           | 📝 **Sketch Name** | \`${SKETCH_NAME}\` |
           | 🎯 **Board** | \`esp8266:esp8266:generic\` |
-          | ⚡ **CPU Frequency** | ${CPU_FREQ} MHz |
-          | 🔮 **Crystal** | ${CRYSTAL_FREQ} MHz |
           | 💾 **Flash Size** | ${FLASH_SIZE_MB} MB |
-          | 📡 **Flash Mode** | ${FLASH_MODE^^} @ ${FLASH_FREQ} MHz |
           | 🕐 **Build Time** | ${BUILD_TIME} |
-          | 🔖 **Commit** | [\`${COMMIT_SHA}\`](https://github.com/${REPO}/commit/${COMMIT_SHA_FULL}) |
+          | 🔖 **Commit** | [\`${COMMIT_SHA_FULL}\`](https://github.com/${REPO}/commit/${COMMIT_SHA_FULL}) |
+          
+          <details>
+          <summary>⚙️ Frequency Configuration (click to expand)</summary>
+          
+          | Property | Value |
+          |----------|-------|
+          | ⚡ **CPU Frequency** | ${CPU_FREQ} MHz |
+          | 🔮 **Crystal Frequency** | ${CRYSTAL_FREQ} MHz |
+          | 📡 **Flash Mode** | ${FLASH_MODE^^} @ ${FLASH_FREQ} MHz |
+          
+          </details>
           
           ## 📊 Binary File Details
           
@@ -178,7 +220,7 @@ jobs:
           
           ## 📥 Download Firmware
           
-          🔗 **[Download Firmware Artifact](https://github.com/${REPO}/actions/runs/${RUN_ID})**
+          🔗 **[Download Firmware Artifact](${ARTIFACT_URL})**
           
           The compiled and compressed firmware binary is available as a workflow artifact along with MD5 checksums and build metadata.
           
@@ -190,15 +232,10 @@ jobs:
           
           ## 🔐 MD5 Checksums
           
-          ### Compressed Binary (gzip)
-          \`\`\`
-          ${MD5_COMPRESSED}
-          \`\`\`
-          
-          ### Original Binary (before compression)
-          \`\`\`
-          ${MD5_UNCOMPRESSED}
-          \`\`\`
+          | Binary Type | MD5 Hash |
+          |-------------|----------|
+          | 📄 **Original Binary** (before compression) | \`${MD5_UNCOMPRESSED}\` |
+          | 🗜️ **Compressed Binary** (gzip) | \`${MD5_COMPRESSED}\` |
           
           ## ✅ Integrity Verification
           
@@ -228,13 +265,3 @@ jobs:
           EOF
           
           echo "✅ Build summary generated successfully"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: firmware
-          path: |
-            ASA0002E/Build/*.bin
-            ASA0002E/Build/*.md5
-            ASA0002E/Build/build-info.txt
-          if-no-files-found: error
