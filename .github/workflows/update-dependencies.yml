@@ -68,8 +68,8 @@ jobs:
             
             # Parse UPDATE_DETAILS section if it exists
             if grep -q "UPDATE_DETAILS_START" upgrade_output.txt 2>/dev/null; then
-              # Extract details between markers
-              sed -n '/UPDATE_DETAILS_START/,/UPDATE_DETAILS_END/p' upgrade_output.txt | grep -v "UPDATE_DETAILS" | while IFS='|' read -r name old_ver new_ver repo_url; do
+              # Extract details between markers and process without subshell
+              while IFS='|' read -r name old_ver new_ver repo_url; do
                 if [ -n "$name" ]; then
                   if [ "$name" = "esp8266:esp8266" ]; then
                     # Platform update
@@ -81,7 +81,7 @@ jobs:
                     LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
                   fi
                 fi
-              done
+              done < <(sed -n '/UPDATE_DETAILS_START/,/UPDATE_DETAILS_END/p' upgrade_output.txt | grep -v "UPDATE_DETAILS")
             else
               # Fallback: Extract from log output (legacy format without repo URLs)
               while IFS= read -r line; do
