@@ -96,7 +96,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           # Load build information
-          source Build/build-info.txt
+          if [ -f Build/build-info.txt ]; then
+            source Build/build-info.txt
+          else
+            echo "Error: Build/build-info.txt not found. Ensure build.sh generated this file before running the build summary step." >&2
+            exit 1
+          fi
           
           BIN_FILE="Build/${SKETCH_NAME}.bin"
           MD5_FILE="Build/${SKETCH_NAME}.bin.md5"
