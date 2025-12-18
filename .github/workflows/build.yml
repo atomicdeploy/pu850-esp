@@ -134,8 +134,8 @@ jobs:
             if command -v jq &> /dev/null; then
               ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.name == "firmware") | .id' 2>/dev/null || echo "")
             else
-              # Fallback to grep-based parsing
-              ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep '"id":' | head -1 | grep -oP '\d+' || echo "")
+              # Fallback to grep-based parsing with more specific pattern
+              ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | grep -A 5 '"name": "firmware"' | grep -m1 -oP '"id":\s*\K[0-9]+' || echo "")
             fi
           
             if [ -n "$ARTIFACT_ID" ]; then
@@ -257,7 +257,22 @@ jobs:
           ### Usage Visualization
           
           \`\`\`
-          Flash: [$(printf '█%.0s' $(seq 1 $((FLASH_USAGE_PCT/2))))$(printf '░%.0s' $(seq 1 $((50-FLASH_USAGE_PCT/2))))] ${FLASH_USAGE_PCT}%
+          Flash: [$(
+            # Calculate bars with bounds checking
+            FLASH_BARS=$((FLASH_USAGE_PCT / 2))
+            if [ "\$FLASH_BARS" -lt 0 ]; then FLASH_BARS=0; elif [ "\$FLASH_BARS" -gt 50 ]; then FLASH_BARS=50; fi
+            
+            # Print filled bars
+            if [ "\$FLASH_BARS" -gt 0 ]; then
+              printf '█%.0s' \$(seq 1 "\$FLASH_BARS")
+            fi
+            
+            # Print empty bars
+            EMPTY_BARS=$((50 - FLASH_BARS))
+            if [ "\$EMPTY_BARS" -gt 0 ]; then
+              printf '░%.0s' \$(seq 1 "\$EMPTY_BARS")
+            fi
+          )] ${FLASH_USAGE_PCT}%
           \`\`\`
           
           ## 📚 Additional Information

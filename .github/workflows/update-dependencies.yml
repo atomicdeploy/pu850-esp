@@ -208,12 +208,6 @@ jobs:
           branch: auto-update/dependencies
           delete-branch: true
           labels: ${{ steps.pr_content.outputs.labels }}
-      
-      - name: Cleanup temporary files
-        if: always()
-        run: |
-          rm -f upgrade_output.txt
-          echo "✅ Cleaned up temporary files"
 
       - name: Generate dependency update summary
         if: always()
@@ -223,6 +217,11 @@ jobs:
           RUN_ID="${GITHUB_RUN_ID}"
           WORKFLOW_NAME="Dependency Updates"
           RUN_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          # Check if upgrade_output.txt exists from earlier step
+          if [ ! -f upgrade_output.txt ]; then
+            echo "⚠️ Warning: upgrade_output.txt not found, summary may be incomplete" >&2
+          fi
           
           # Start building summary
           cat >> $GITHUB_STEP_SUMMARY << 'HEADER'
@@ -354,6 +353,12 @@ jobs:
           EOF
           
           echo "✅ Dependency update summary generated"
+      
+      - name: Cleanup temporary files
+        if: always()
+        run: |
+          rm -f upgrade_output.txt
+          echo "✅ Cleaned up temporary files"
 
       - name: Summary
         if: false  # Disabled in favor of comprehensive summary above
