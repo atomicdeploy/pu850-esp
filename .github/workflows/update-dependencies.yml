@@ -51,17 +51,150 @@ jobs:
             echo "updates_available=false" >> $GITHUB_OUTPUT
           fi
           
-          # Extract update information for summary
-          # Parse lines like: "Library xyz: 1.0.0 -> 1.1.0" or "Platform xyz: ..."
-          echo "UPDATE_DETAILS<<EOF" >> $GITHUB_OUTPUT
-          grep -E "(Library|Platform).*:.*->" upgrade_output.txt | sed 's/\[WARNING\] //' >> $GITHUB_OUTPUT || echo "No updates found" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          # Parse update information for PR body generation
+          # Extract library updates
+          LIBRARY_UPDATES=""
+          LIBRARY_COUNT=0
+          while IFS= read -r line; do
+            if echo "$line" | grep -q "Library.*:.*->"; then
+              LIB_NAME=$(echo "$line" | sed -E 's/.*Library ([^:]+):.*/\1/')
+              OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
+              NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
+              LIBRARY_UPDATES="${LIBRARY_UPDATES}${LIB_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
+              LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
+            fi
+          done < <(grep "Library" upgrade_output.txt 2>/dev/null || true)
+          
+          # Extract platform updates
+          PLATFORM_UPDATES=""
+          PLATFORM_COUNT=0
+          while IFS= read -r line; do
+            if echo "$line" | grep -q "Platform.*:.*->"; then
+              PLATFORM_NAME=$(echo "$line" | sed -E 's/.*Platform ([^:]+):.*/\1/')
+              OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
+              NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
+              PLATFORM_UPDATES="${PLATFORM_UPDATES}${PLATFORM_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
+              PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
+            fi
+          done < <(grep "Platform" upgrade_output.txt 2>/dev/null || true)
+          
+          # Export to GITHUB_OUTPUT
+          {
+            echo "library_updates<<EOF"
+            echo "$LIBRARY_UPDATES"
+            echo "EOF"
+            echo "platform_updates<<EOF"
+            echo "$PLATFORM_UPDATES"
+            echo "EOF"
+            echo "library_count=$LIBRARY_COUNT"
+            echo "platform_count=$PLATFORM_COUNT"
+          } >> $GITHUB_OUTPUT
 
       - name: Show sketch.yaml changes
         if: steps.check_updates.outputs.updates_applied == 'true'
         run: |
           echo "Changes to sketch.yaml:"
           git diff sketch.yaml
+      
+      - name: Generate dynamic PR content
+        id: pr_content
+        if: steps.check_updates.outputs.updates_applied == 'true'
+        run: |
+          LIBRARY_COUNT="${{ steps.check_updates.outputs.library_count }}"
+          PLATFORM_COUNT="${{ steps.check_updates.outputs.platform_count }}"
+          
+          # Determine PR title based on what was updated
+          if [ "$LIBRARY_COUNT" -gt 0 ] && [ "$PLATFORM_COUNT" -gt 0 ]; then
+            PR_TITLE="⬆️ Update ESP8266 Core and ${LIBRARY_COUNT} $([ "$LIBRARY_COUNT" -eq 1 ] && echo "Library" || echo "Libraries")"
+            TITLE_EMOJI="⬆️"
+          elif [ "$PLATFORM_COUNT" -gt 0 ]; then
+            PR_TITLE="⬆️ Update ESP8266 Core"
+            TITLE_EMOJI="🔧"
+          elif [ "$LIBRARY_COUNT" -gt 0 ]; then
+            PR_TITLE="📚 Update ${LIBRARY_COUNT} $([ "$LIBRARY_COUNT" -eq 1 ] && echo "Library" || echo "Libraries")"
+            TITLE_EMOJI="📚"
+          else
+            PR_TITLE="⬆️ Dependency Updates"
+            TITLE_EMOJI="⬆️"
+          fi
+          
+          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "title_emoji=$TITLE_EMOJI" >> $GITHUB_OUTPUT
+          
+          # Generate labels based on what was updated
+          LABELS="dependencies"$'\n'"automated"
+          if [ "$LIBRARY_COUNT" -gt 0 ]; then
+            LABELS="${LABELS}"$'\n'"library"
+          fi
+          if [ "$PLATFORM_COUNT" -gt 0 ]; then
+            LABELS="${LABELS}"$'\n'"core"
+          fi
+          
+          {
+            echo "labels<<EOF"
+            echo "$LABELS"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+          
+          # Build PR body
+          PR_BODY="# ${TITLE_EMOJI} Automated Dependency Updates"$'\n\n'
+          
+          # Add summary
+          TOTAL_UPDATES=$((LIBRARY_COUNT + PLATFORM_COUNT))
+          PR_BODY="${PR_BODY}This PR updates **${TOTAL_UPDATES}** $([ "$TOTAL_UPDATES" -eq 1 ] && echo "dependency" || echo "dependencies") to their latest versions."$'\n\n'
+          
+          # Add platform updates table if any
+          if [ "$PLATFORM_COUNT" -gt 0 ]; then
+            PR_BODY="${PR_BODY}## 🔧 Platform Updates"$'\n\n'
+            PR_BODY="${PR_BODY}| Platform | Previous Version | New Version |"$'\n'
+            PR_BODY="${PR_BODY}|----------|------------------|-------------|"$'\n'
+            
+            while IFS='|' read -r name old new; do
+              if [ -n "$name" ]; then
+                PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` |"$'\n'
+              fi
+            done <<< "${{ steps.check_updates.outputs.platform_updates }}"
+            
+            PR_BODY="${PR_BODY}"$'\n'
+          fi
+          
+          # Add library updates table if any
+          if [ "$LIBRARY_COUNT" -gt 0 ]; then
+            PR_BODY="${PR_BODY}## 📚 Library Updates"$'\n\n'
+            PR_BODY="${PR_BODY}| Library | Previous Version | New Version |"$'\n'
+            PR_BODY="${PR_BODY}|---------|------------------|-------------|"$'\n'
+            
+            while IFS='|' read -r name old new; do
+              if [ -n "$name" ]; then
+                PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` |"$'\n'
+              fi
+            done <<< "${{ steps.check_updates.outputs.library_updates }}"
+            
+            PR_BODY="${PR_BODY}"$'\n'
+          fi
+          
+          # Add what to do section
+          PR_BODY="${PR_BODY}## ✅ Next Steps"$'\n\n'
+          PR_BODY="${PR_BODY}1. 🔍 Review the changes in [\`sketch.yaml\`](sketch.yaml)"$'\n'
+          PR_BODY="${PR_BODY}2. ⚙️ Build workflow will automatically verify compilation"$'\n'
+          PR_BODY="${PR_BODY}3. 🚀 Merge this PR to apply the updates"$'\n\n'
+          
+          # Add links section
+          PR_BODY="${PR_BODY}## 🔗 Resources"$'\n\n'
+          PR_BODY="${PR_BODY}"'- 📖 [Arduino Library Manager](https://www.arduino.cc/reference/en/libraries/)'$'\n'
+          PR_BODY="${PR_BODY}"'- 🔧 [ESP8266 Arduino Core](https://github.com/esp8266/Arduino)'$'\n'
+          PR_BODY="${PR_BODY}"'- 📦 [ESP8266 Package Index](https://arduino.esp8266.com/stable/package_esp8266com_index.json)'$'\n\n'
+          
+          # Add footer
+          PR_BODY="${PR_BODY}---"$'\n\n'
+          PR_BODY="${PR_BODY}"'🤖 *Automatically generated by [Dependency Updates](.github/workflows/update-dependencies.yml)*'
+          
+          # Output PR body to file and GITHUB_OUTPUT
+          {
+            echo "pr_body<<EOFBODY"
+            echo "$PR_BODY"
+            echo "EOFBODY"
+          } >> $GITHUB_OUTPUT
 
       - name: Create Pull Request
         id: create_pr
@@ -69,38 +202,18 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          commit-message: "chore: update Arduino libraries and platform versions"
-          title: "chore: Automatic dependency updates"
-          body: |
-            ## 🔄 Automatic Dependency Updates
-            
-            This PR was automatically generated by the dependency update workflow.
-            
-            ### 📦 Updated Dependencies
-            
-            The following dependencies have been updated to their latest versions:
-            
-            ${{ steps.check_updates.outputs.UPDATE_DETAILS }}
-            
-            ### 📋 What to do
-            1. 👀 Review the changes in `sketch.yaml`
-            2. ✅ Verify that the build workflow passes
-            3. 🚀 Merge this PR to apply the updates
-            
-            ### 🔗 Related Links
-            - [sketch.yaml](sketch.yaml) - Updated dependency configuration
-            - [Build Workflow](.github/workflows/build.yml) - Will validate these changes
-            - [Arduino Library Index](https://www.arduino.cc/reference/en/libraries/)
-            - [ESP8266 Arduino Core](https://github.com/esp8266/Arduino)
-            
-            ---
-            
-            🤖 *This PR was created by the [Dependency Updates](.github/workflows/update-dependencies.yml) workflow.*
+          commit-message: "chore: update dependencies"
+          title: ${{ steps.pr_content.outputs.pr_title }}
+          body: ${{ steps.pr_content.outputs.pr_body }}
           branch: auto-update/dependencies
           delete-branch: true
-          labels: |
-            dependencies
-            automated
+          labels: ${{ steps.pr_content.outputs.labels }}
+      
+      - name: Cleanup temporary files
+        if: always()
+        run: |
+          rm -f upgrade_output.txt
+          echo "✅ Cleaned up temporary files"
 
       - name: Generate dependency update summary
         if: always()
