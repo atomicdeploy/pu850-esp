@@ -346,7 +346,7 @@ jobs:
           | 🕐 **Run Time** | ${RUN_TIME} |
           | 🔄 **Workflow** | [${WORKFLOW_NAME}](.github/workflows/update-dependencies.yml) |
           | 🔗 **Run ID** | [${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID}) |
-          | 📦 **Mode** | ${{ github.event.inputs.check_only == 'true' && 'Check Only' || 'Apply Updates' }} |
+          | 📦 **Mode** | ${{ (github.event.inputs.check_only == 'true' && 'Check Only') || 'Apply Updates' }} |
           | ✅ **Status** | ${{ (steps.check_updates.outputs.updates_applied == 'true' && 'Updates Applied') || (steps.check_updates.outputs.updates_available == 'true' && 'Updates Available') || 'Up-to-Date' }} |
           
           ## 📚 Resources
