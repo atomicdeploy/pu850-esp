@@ -64,10 +64,23 @@ jobs:
           # Only match lines after "libraries:" that start with "- " and have format "LibraryName (version)"
           # Exclude lines containing "platform:" to avoid matching platform entries
           grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+\([^)]+\)' | grep -v 'platform:' | while read -r line; do
-            # Extract library name (everything before the last '(' with version)
-            lib_name=$(echo "$line" | sed -E 's/^\s*-\s*(.+)\s*\([^)]+\)\s*$/\1/' | sed 's/[[:space:]]*$//')
-            # Extract version (content inside the last parentheses)
-            lib_version=$(echo "$line" | sed -E 's/.*\(([^)]+)\).*/\1/')
+            # Extract library name and version using awk with index/substr (avoids sed regex issues)
+            lib_name=$(echo "$line" | awk '{
+              open_paren = index($0, "(")
+              if (open_paren > 0) {
+                name = substr($0, 1, open_paren - 1)
+                gsub(/^[[:space:]]*-[[:space:]]*/, "", name)
+                gsub(/[[:space:]]*$/, "", name)
+                print name
+              }
+            }')
+            lib_version=$(echo "$line" | awk '{
+              open_paren = index($0, "(")
+              close_paren = index($0, ")")
+              if (open_paren > 0 && close_paren > open_paren) {
+                print substr($0, open_paren + 1, close_paren - open_paren - 1)
+              }
+            }')
             echo "Installing library: ${lib_name}@${lib_version}"
             arduino-cli --config-file .vscode/arduino-cli.yaml lib install "${lib_name}@${lib_version}" || \
               arduino-cli --config-file .vscode/arduino-cli.yaml lib install "${lib_name}"
