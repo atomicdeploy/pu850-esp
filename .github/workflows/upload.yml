@@ -70,7 +70,7 @@ jobs:
           echo "Timeout waiting for builds to complete."
           echo "completed=false" >> $GITHUB_OUTPUT
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
   upload:
     runs-on: ubuntu-latest
@@ -103,6 +103,8 @@ jobs:
       - name: Checkout repository
         if: steps.check_secret.outputs.skip != 'true'
         uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Get workflow run ID
         if: steps.check_secret.outputs.skip != 'true'
@@ -127,7 +129,7 @@ jobs:
             echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
           fi
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Download firmware artifact
         if: steps.check_secret.outputs.skip != 'true'
@@ -136,7 +138,7 @@ jobs:
           name: firmware
           path: firmware
           run-id: ${{ steps.get_run_id.outputs.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: List downloaded files
         if: steps.check_secret.outputs.skip != 'true'
