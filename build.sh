@@ -538,6 +538,31 @@ elapsedTime "$start_time" "$end_time"
 # Export build metadata for CI (if running in CI)
 if [ "$IS_CI" = "true" ]; then
 	BUILD_INFO_FILE="${VSCA_BUILD_DIR}/build-info.txt"
+	
+	# Extract RAM usage from build log if available
+	# Format: "Global variables use 31872 bytes (38%) of dynamic memory, leaving 50048 bytes for local variables. Maximum is 81920 bytes."
+	RAM_USED=0
+	RAM_TOTAL=81920  # Default for ESP8266
+	RAM_USAGE_PCT=0
+	RAM_AVAILABLE=0
+	
+	if [ -f "$log_file" ]; then
+		# Try to extract RAM usage from log file
+		ram_line=$(grep -i "Global variables use" "$log_file" | tail -1)
+		if [ -n "$ram_line" ]; then
+			# Extract used RAM (first number in bytes)
+			RAM_USED=$(echo "$ram_line" | grep -oP 'Global variables use \K[0-9]+' || echo "0")
+			# Extract total RAM (Maximum is XXXXX bytes)
+			RAM_TOTAL=$(echo "$ram_line" | grep -oP 'Maximum is \K[0-9]+' || echo "81920")
+			# Extract available RAM (leaving XXXXX bytes)
+			RAM_AVAILABLE=$(echo "$ram_line" | grep -oP 'leaving \K[0-9]+' || echo "0")
+			# Calculate RAM usage percentage
+			if [ "$RAM_TOTAL" -gt 0 ]; then
+				RAM_USAGE_PCT=$((100 * RAM_USED / RAM_TOTAL))
+			fi
+		fi
+	fi
+	
 	cat > "$BUILD_INFO_FILE" << EOF
 SKETCH_NAME="${VSCA_SKETCH}"
 ORIGINAL_SIZE=${size}
@@ -545,6 +570,10 @@ COMPRESSED_SIZE=${compressedSize}
 COMPRESSION_RATIO=${compressionRatio}
 FLASH_SIZE_MB=${flashSize}
 FLASH_USAGE_PCT=${totalUsage}
+RAM_USED=${RAM_USED}
+RAM_TOTAL=${RAM_TOTAL}
+RAM_USAGE_PCT=${RAM_USAGE_PCT}
+RAM_AVAILABLE=${RAM_AVAILABLE}
 BOARD_PARAMS='${board_params}'
 BUILD_FLAGS='${build_flags}'
 EOF
