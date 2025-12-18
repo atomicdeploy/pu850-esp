@@ -163,6 +163,11 @@ jobs:
           FLASH_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_SIZE_MB}*1024}")
           FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.2f\", ${FLASH_TOTAL_KB} - ${COMPRESSED_SIZE_KB}}")
           
+          # Calculate flash usage bars for visualization (with bounds checking)
+          FLASH_BARS=$((FLASH_USAGE_PCT / 2))
+          [ $FLASH_BARS -lt 0 ] && FLASH_BARS=0
+          [ $FLASH_BARS -gt 50 ] && FLASH_BARS=50
+          
           # Extract key board parameters for display
           # Default values: CPU=80MHz, Crystal=26MHz, Flash=40MHz/QIO
           CRYSTAL_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'CrystalFreq=\K[^,]+' || echo "26")
@@ -233,17 +238,12 @@ jobs:
           
           \`\`\`
           Flash: [$(
-            # Calculate bars with bounds checking
-            BARS=$((${FLASH_USAGE_PCT} / 2))
-            [ \$BARS -lt 0 ] && BARS=0
-            [ \$BARS -gt 50 ] && BARS=50
-            
             # Print filled bars
-            [ \$BARS -gt 0 ] && printf '█%.0s' \$(seq 1 \$BARS)
+            [ $FLASH_BARS -gt 0 ] && printf '█%.0s' $(seq 1 $FLASH_BARS)
             
             # Print empty bars
-            EMPTY=$((50 - \$BARS))
-            [ \$EMPTY -gt 0 ] && printf '░%.0s' \$(seq 1 \$EMPTY)
+            EMPTY=$((50 - $FLASH_BARS))
+            [ $EMPTY -gt 0 ] && printf '░%.0s' $(seq 1 $EMPTY)
           )] ${FLASH_USAGE_PCT}%
           \`\`\`
           
