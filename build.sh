@@ -415,6 +415,10 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	# Colorize lines starting with . (green bold) - memory summary lines
 	if [[ "$line" =~ ^\. ]]; then
 		echo -e "\033[92;1m${line}\033[0m"
+		# Save RAM usage line for later parsing (new Arduino CLI format)
+		if [[ "$line" =~ Variables\ and\ constants\ in\ RAM ]]; then
+			echo "$line" >> "${VSCA_WORKSPACE_DIR}/.ram_usage.tmp"
+		fi
 		prev_line="$line"
 		continue
 	fi
@@ -539,15 +543,37 @@ elapsedTime "$start_time" "$end_time"
 if [ "$IS_CI" = "true" ]; then
 	BUILD_INFO_FILE="${VSCA_BUILD_DIR}/build-info.txt"
 	
-	# Extract RAM usage from build log if available
-	# Format: "Global variables use 31872 bytes (38%) of dynamic memory, leaving 50048 bytes for local variables. Maximum is 81920 bytes."
+	# Extract RAM usage from build log or temporary file
+	# Old format: "Global variables use 31872 bytes (38%) of dynamic memory, leaving 50048 bytes for local variables. Maximum is 81920 bytes."
+	# New format: ". Variables and constants in RAM (global, static), used 44232 / 80192 bytes (55%)"
 	RAM_USED=0
 	RAM_TOTAL=81920  # Default for ESP8266
 	RAM_USAGE_PCT=0
 	RAM_AVAILABLE=0
 	
-	if [ -f "$log_file" ]; then
-		# Try to extract RAM usage from log file
+	# Try new format first (from temporary file created during build)
+	if [ -f "${VSCA_WORKSPACE_DIR}/.ram_usage.tmp" ]; then
+		ram_line=$(cat "${VSCA_WORKSPACE_DIR}/.ram_usage.tmp" | tail -1)
+		if [ -n "$ram_line" ]; then
+			# New format: ". Variables and constants in RAM (global, static), used 44232 / 80192 bytes (55%)"
+			# Extract: used 44232 / 80192 bytes
+			RAM_USED=$(echo "$ram_line" | grep -oP 'used \K[0-9]+' 2>/dev/null || \
+			           echo "$ram_line" | sed -n 's/.*used \([0-9]\+\).*/\1/p' || echo "0")
+			RAM_TOTAL=$(echo "$ram_line" | grep -oP 'used [0-9]+ / \K[0-9]+' 2>/dev/null || \
+			            echo "$ram_line" | sed -n 's/.*used [0-9]\+ \/ \([0-9]\+\).*/\1/p' || echo "81920")
+			# Calculate available RAM
+			if [ "$RAM_TOTAL" -gt 0 ] && [ "$RAM_USED" -gt 0 ]; then
+				RAM_AVAILABLE=$((RAM_TOTAL - RAM_USED))
+				RAM_USAGE_PCT=$((100 * RAM_USED / RAM_TOTAL))
+			fi
+		fi
+		# Clean up temporary file
+		rm -f "${VSCA_WORKSPACE_DIR}/.ram_usage.tmp"
+	fi
+	
+	# Fallback to old format if new format didn't work
+	if [ "$RAM_USED" -eq 0 ] && [ -f "$log_file" ]; then
+		# Try to extract RAM usage from log file (old format)
 		ram_line=$(grep -i "Global variables use" "$log_file" | tail -1)
 		if [ -n "$ram_line" ]; then
 			# Extract used RAM (first number in bytes)
