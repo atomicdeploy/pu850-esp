@@ -9,7 +9,7 @@ profiles:
       - ESP_EEPROM (2.2.1)
       - ESP Telnet (2.2.3)
       - ESPAsyncTCP (2.0.0)
-      - ESP Async WebServer (3.9.2)
+      - ESP Async WebServer (3.9.3)
       - NTPClient (3.2.1)
       - ArduinoJson (7.4.2)
       - Arduino_JSON (0.2.0)
