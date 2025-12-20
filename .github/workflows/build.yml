@@ -223,37 +223,7 @@ jobs:
           # Extract name, version, and website URL for each installed library
           LIBRARY_LIST=""
           if [ -f "Build/libraries.json" ]; then
-            LIBRARY_LIST=$(python3 -c '
-            import json
-            import re
-            from urllib.parse import quote_plus
-            
-            def escape_markdown(text):
-                """Escape special markdown characters to prevent injection"""
-                return re.sub(r"([\\`*_{}[\]()#+\-.!|])", r"\\\1", text)
-            
-            try:
-                with open("Build/libraries.json", "r") as f:
-                    data = json.load(f)
-                for lib_info in data.get("installed_libraries", []):
-                    lib = lib_info.get("library", {})
-                    name = lib.get("name", "")
-                    version = lib.get("version", "")
-                    website = lib.get("website", "")
-                    if not name or not version:
-                        continue
-                    # Escape library name to prevent markdown injection
-                    safe_name = escape_markdown(name)
-                    if website:
-                        print(f"| [{safe_name}]({website}) | `{version}` |")
-                    else:
-                        # Proper URL encoding for special characters
-                        search_url = f"https://github.com/search?q={quote_plus(name)}&type=repositories"
-                        print(f"| [{safe_name}]({search_url}) | `{version}` |")
-            except Exception as e:
-                import sys
-                print(f"Error: {e}", file=sys.stderr)
-            ')
+            LIBRARY_LIST=$(python3 -c 'import json; import re; from urllib.parse import quote_plus; exec("def escape_markdown(text):\n    return re.sub(r\"([\\\\`*_{}[\\]()#+\\-.!|])\", r\"\\\\\\1\", text)\n\ntry:\n    with open(\"Build/libraries.json\", \"r\") as f:\n        data = json.load(f)\n    for lib_info in data.get(\"installed_libraries\", []):\n        lib = lib_info.get(\"library\", {})\n        name = lib.get(\"name\", \"\")\n        version = lib.get(\"version\", \"\")\n        website = lib.get(\"website\", \"\")\n        if not name or not version:\n            continue\n        safe_name = escape_markdown(name)\n        if website:\n            print(f\"| [{safe_name}]({website}) | `{version}` |\")\n        else:\n            search_url = f\"https://github.com/search?q={quote_plus(name)}&type=repositories\"\n            print(f\"| [{safe_name}]({search_url}) | `{version}` |\")\nexcept Exception as e:\n    import sys\n    print(f\"Error: {e}\", file=sys.stderr)\n")')
           else
             # Fallback to parsing sketch.yaml if libraries.json is not available
             LIBRARY_LIST=$(awk '
