@@ -562,6 +562,8 @@ if [ "$IS_CI" = "true" ]; then
 			RAM_TOTAL=$(echo "$ram_line" | grep -oP 'used [0-9]+ / \K[0-9]+' 2>/dev/null || \
 			            echo "$ram_line" | sed -n 's/.*used [0-9]\+ \/ \([0-9]\+\).*/\1/p' || echo "81920")
 			# Calculate available RAM
+			# Note: If RAM_USED is 0, it's likely a parsing error rather than actual zero usage,
+			# so we skip calculation to avoid reporting misleading data
 			if [ "$RAM_TOTAL" -gt 0 ] && [ "$RAM_USED" -gt 0 ]; then
 				RAM_AVAILABLE=$((RAM_TOTAL - RAM_USED))
 				RAM_USAGE_PCT=$((100 * RAM_USED / RAM_TOTAL))
