@@ -341,13 +341,16 @@ jobs:
           
           </details>
           
-          ### 📚 Used Libraries
+          <details>
+          <summary>📚 Used Libraries (Click to expand)</summary>
           
           The following libraries were used in this build (as specified in \`sketch.yaml\`):
           
           | Library Name | Version |
           |--------------|---------|
           ${LIBRARY_LIST}
+          
+          </details>
           
           **🔩 Platform Core:** [\`${PLATFORM_VERSION}\`](https://github.com/esp8266/Arduino/releases/tag/${PLATFORM_VERSION})
           
@@ -375,7 +378,7 @@ jobs:
           | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** ($(printf "%'d" ${ORIGINAL_SIZE} 2>/dev/null || echo ${ORIGINAL_SIZE}) bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
           | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** ($(printf "%'d" ${COMPRESSED_SIZE} 2>/dev/null || echo ${COMPRESSED_SIZE}) bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
           
-          **📈 Compression Ratio:** ![${COMPRESSION_RATIO}% Compression](https://geps.dev/progress/${COMPRESSION_RATIO}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) **\`${COMPRESSION_RATIO}%\`** (saved ${COMPRESSION_SAVED_KB} KB, using gzip level 9)
+          **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved ${COMPRESSION_SAVED_KB} KB) - using gzip level 9
           
           ### 📦 Artifact Contents
           
