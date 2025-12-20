@@ -226,6 +226,7 @@ jobs:
             LIBRARY_LIST=$(python3 -c '
             import json
             import re
+            from urllib.parse import quote_plus
             
             def escape_markdown(text):
                 """Escape special markdown characters to prevent injection"""
@@ -246,13 +247,14 @@ jobs:
                     if website:
                         print(f"| [{safe_name}]({website}) | `{version}` |")
                     else:
-                        search_url = f"https://github.com/search?q={name.replace(\" \", \"+\")}&type=repositories"
+                        # Proper URL encoding for special characters
+                        search_url = f"https://github.com/search?q={quote_plus(name)}&type=repositories"
                         print(f"| [{safe_name}]({search_url}) | `{version}` |")
             except Exception as e:
                 import sys
                 print(f"Error: {e}", file=sys.stderr)
             ')
-          else;
+          else
             # Fallback to parsing sketch.yaml if libraries.json is not available
             LIBRARY_LIST=$(awk '
               /libraries:/ { in_libs=1; next }
@@ -312,8 +314,8 @@ jobs:
           [ $RAM_EMPTY -gt 0 ] && RAM_BARS_EMPTY=$(printf '░%.0s' $(seq 1 $RAM_EMPTY))
           
           # RAM formatted values (with safe division to avoid inf/nan)
-          # Allow RAM_AVAILABLE to be 0 (valid when all RAM is used), only check RAM_TOTAL
-          if [ "$RAM_TOTAL" -gt 0 ]; then
+          # Validate all variables to prevent division errors
+          if [ "$RAM_TOTAL" -gt 0 ] && [ -n "$RAM_AVAILABLE" ] && [ -n "$RAM_USED" ]; then
             RAM_AVAILABLE_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_AVAILABLE}/1024}")
             RAM_TOTAL_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_TOTAL}/1024}")
             RAM_USED_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_USED}/1024}")
