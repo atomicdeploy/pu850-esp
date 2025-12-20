@@ -196,15 +196,15 @@ jobs:
                 PR_BODY="${PR_BODY}### ${name} (${old} → ${new})"$'\n\n'
                 
                 # Try to get release notes from GitHub API
-                release_notes=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                release_notes=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                   "https://api.github.com/repos/${owner_repo}/releases/tags/${new}" | \
                   jq -r '.body // empty' 2>/dev/null || echo "")
                 
                 if [ -n "$release_notes" ]; then
                   PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
                 else
-                  # Try without 'v' prefix
-                  release_notes=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  # Try with 'v' prefix
+                  release_notes=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                     "https://api.github.com/repos/${owner_repo}/releases/tags/v${new}" | \
                     jq -r '.body // empty' 2>/dev/null || echo "")
                   
@@ -244,15 +244,15 @@ jobs:
                 PR_BODY="${PR_BODY}### ${name} (${old} → ${new})"$'\n\n'
                 
                 # Try to get release notes from GitHub API
-                release_notes=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                release_notes=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                   "https://api.github.com/repos/${owner_repo}/releases/tags/${new}" | \
                   jq -r '.body // empty' 2>/dev/null || echo "")
                 
                 if [ -n "$release_notes" ]; then
                   PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
                 else
-                  # Try without 'v' prefix
-                  release_notes=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  # Try with 'v' prefix
+                  release_notes=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                     "https://api.github.com/repos/${owner_repo}/releases/tags/v${new}" | \
                     jq -r '.body // empty' 2>/dev/null || echo "")
                   
