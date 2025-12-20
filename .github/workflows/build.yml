@@ -256,6 +256,8 @@ jobs:
                   version = substr($0, open_paren + 1, close_paren - open_paren - 1)
                   gsub(/^[[:space:]]*-[[:space:]]*/, "", name)
                   gsub(/[[:space:]]*$/, "", name)
+                  # Best-effort URL encoding for spaces in library name (align with Python replace(' ', '+'))
+                  gsub(/[[:space:]]+/, "+", name)
                   lib_url = "https://github.com/search?q=" name "&type=repositories"
                   print "| [" name "](" lib_url ") | `" version "` |"
                 }
