@@ -553,7 +553,7 @@ if [ "$IS_CI" = "true" ]; then
 	
 	# Try new format first (from temporary file created during build)
 	if [ -f "${VSCA_WORKSPACE_DIR}/.ram_usage.tmp" ]; then
-		ram_line=$(cat "${VSCA_WORKSPACE_DIR}/.ram_usage.tmp" | tail -1)
+		ram_line=$(tail -1 "${VSCA_WORKSPACE_DIR}/.ram_usage.tmp")
 		if [ -n "$ram_line" ]; then
 			# New format: ". Variables and constants in RAM (global, static), used 44232 / 80192 bytes (55%)"
 			# Extract: used 44232 / 80192 bytes
