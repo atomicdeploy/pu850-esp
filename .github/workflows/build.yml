@@ -224,7 +224,7 @@ jobs:
           # Extract name, version, and website URL for each installed library
           LIBRARY_LIST=""
           if [ -f "Build/libraries.json" ]; then
-            LIBRARY_LIST=$(python3 -c 'import json; import re; from urllib.parse import quote_plus; exec("def escape_markdown(text):\n    return re.sub(r\"([\\\\`*_{}[\\]()#+\\-.!|])\", r\"\\\\\\1\", text)\n\ntry:\n    with open(\"Build/libraries.json\", \"r\") as f:\n        data = json.load(f)\n    for lib_info in data.get(\"installed_libraries\", []):\n        lib = lib_info.get(\"library\", {})\n        name = lib.get(\"name\", \"\")\n        version = lib.get(\"version\", \"\")\n        website = lib.get(\"website\", \"\")\n        if not name or not version:\n            continue\n        safe_name = escape_markdown(name)\n        if website:\n            print(f\"| [{safe_name}]({website}) | `{version}` |\")\n        else:\n            search_url = f\"https://github.com/search?q={quote_plus(name)}&type=repositories\"\n            print(f\"| [{safe_name}]({search_url}) | `{version}` |\")\nexcept Exception as e:\n    import sys\n    print(f\"Error: {e}\", file=sys.stderr)\n")')
+            LIBRARY_LIST=$(python3 -c 'import json; import re; from urllib.parse import quote_plus; exec("def escape_markdown(text):\n    return re.sub(r\"([\\\\`*_{}[\\]()#+\\-.!|])\", r\"\\\\\\1\", text)\n\ntry:\n    with open(\"Build/libraries.json\", \"r\") as f:\n        data = json.load(f)\n    for lib_info in data.get(\"installed_libraries\", []):\n        lib = lib_info.get(\"library\", {})\n        name = lib.get(\"name\", \"\")\n        version = lib.get(\"version\", \"\")\n        website = lib.get(\"website\", \"\")\n        if not name or not version:\n            continue\n        safe_name = escape_markdown(name)\n        if website:\n            print(f\"| **[{safe_name}]({website})** | `{version}` |\")\n        else:\n            search_url = f\"https://github.com/search?q={quote_plus(name)}&type=repositories\"\n            print(f\"| [{safe_name}]({search_url}) | `{version}` |\")\nexcept Exception as e:\n    import sys\n    print(f\"Error: {e}\", file=sys.stderr)\n")')
           else
             # Fallback to parsing sketch.yaml if libraries.json is not available
             LIBRARY_LIST=$(awk '
@@ -240,7 +240,7 @@ jobs:
                   # Best-effort URL encoding for spaces in library name (align with Python replace(' ', '+'))
                   gsub(/[[:space:]]+/, "+", name)
                   lib_url = "https://github.com/search?q=" name "&type=repositories"
-                  print "| [" name "](" lib_url ") | `" version "` |"
+                  print "| **[" name "](" lib_url ")** | `" version "` |"
                 }
               }
               /^[^[:space:]]/ && in_libs && !/libraries:/ { exit }
@@ -412,7 +412,7 @@ jobs:
           ## 📚 Additional Information
           
           - **Build System:** [Arduino CLI](https://arduino.github.io/arduino-cli/)
-          - **Platform:** ESP8266 Arduino Core
+          - **Platform:** [ESP8266 Arduino Core](https://github.com/esp8266/Arduino)
           - **Workflow:** [Build Workflow](.github/workflows/build.yml)
           - **Repository:** [${REPO}](https://github.com/${REPO})
           
