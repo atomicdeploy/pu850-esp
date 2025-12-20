@@ -96,8 +96,13 @@ jobs:
         working-directory: ASA0002E
         run: |
           # Export installed library information to a file for use in the summary
-          arduino-cli --config-file .vscode/arduino-cli.yaml lib list --json > Build/libraries.json
-          echo "✅ Library information exported to Build/libraries.json"
+          mkdir -p Build
+          if arduino-cli --config-file .vscode/arduino-cli.yaml lib list --json > Build/libraries.json; then
+            echo "✅ Library information exported to Build/libraries.json"
+          else
+            echo "⚠️ Failed to export library information, writing empty JSON array to Build/libraries.json"
+            echo "[]" > Build/libraries.json
+          fi
 
       - name: Upload build artifacts
         id: upload_artifacts
