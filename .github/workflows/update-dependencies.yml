@@ -174,55 +174,97 @@ jobs:
           # Add platform updates table if any
           if [ "$PLATFORM_COUNT" -gt 0 ]; then
             PR_BODY="${PR_BODY}## 🔧 Platform Updates"$'\n\n'
-            PR_BODY="${PR_BODY}| Platform | Previous Version | New Version | Changelog |"$'\n'
-            PR_BODY="${PR_BODY}|----------|------------------|-------------|-----------|"$'\n'
+            PR_BODY="${PR_BODY}| Platform | Previous Version | New Version |"$'\n'
+            PR_BODY="${PR_BODY}|----------|------------------|-------------|"$'\n'
             
             while IFS='|' read -r name old new repo_url; do
               if [ -n "$name" ]; then
-                # Create changelog link (only for GitHub repositories)
-                CHANGELOG_LINK=""
-                if [ -n "$repo_url" ] && echo "$repo_url" | grep -q "github.com"; then
-                  # Remove .git suffix if present
-                  repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
-                  CHANGELOG_LINK="[Compare](${repo_clean}/compare/${old}...${new})"
-                fi
-                
-                if [ -n "$CHANGELOG_LINK" ]; then
-                  PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` | ${CHANGELOG_LINK} |"$'\n'
-                else
-                  PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` | - |"$'\n'
-                fi
+                PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` |"$'\n'
               fi
             done <<< "${{ steps.check_updates.outputs.platform_updates }}"
             
             PR_BODY="${PR_BODY}"$'\n'
+            
+            # Fetch and add release notes for platform updates
+            while IFS='|' read -r name old new repo_url; do
+              if [ -n "$name" ] && [ -n "$repo_url" ] && echo "$repo_url" | grep -q "github.com"; then
+                # Extract owner and repo from GitHub URL
+                repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
+                owner_repo=$(echo "$repo_clean" | sed 's|https://github.com/||')
+                
+                # Fetch release notes for the new version
+                PR_BODY="${PR_BODY}### ${name} (${old} → ${new})"$'\n\n'
+                
+                # Try to get release notes from GitHub API
+                release_notes=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  "https://api.github.com/repos/${owner_repo}/releases/tags/${new}" | \
+                  jq -r '.body // empty' 2>/dev/null || echo "")
+                
+                if [ -n "$release_notes" ]; then
+                  PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
+                else
+                  # Try without 'v' prefix
+                  release_notes=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                    "https://api.github.com/repos/${owner_repo}/releases/tags/v${new}" | \
+                    jq -r '.body // empty' 2>/dev/null || echo "")
+                  
+                  if [ -n "$release_notes" ]; then
+                    PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
+                  else
+                    # No release notes found, show compare link
+                    PR_BODY="${PR_BODY}_Release notes not available. View changes: [${old}...${new}](${repo_clean}/compare/${old}...${new})_"$'\n\n'
+                  fi
+                fi
+              fi
+            done <<< "${{ steps.check_updates.outputs.platform_updates }}"
           fi
           
           # Add library updates table if any
           if [ "$LIBRARY_COUNT" -gt 0 ]; then
             PR_BODY="${PR_BODY}## 📚 Library Updates"$'\n\n'
-            PR_BODY="${PR_BODY}| Library | Previous Version | New Version | Changelog |"$'\n'
-            PR_BODY="${PR_BODY}|---------|------------------|-------------|-----------|"$'\n'
+            PR_BODY="${PR_BODY}| Library | Previous Version | New Version |"$'\n'
+            PR_BODY="${PR_BODY}|---------|------------------|-------------|"$'\n'
             
             while IFS='|' read -r name old new repo_url; do
               if [ -n "$name" ]; then
-                # Create changelog link (only for GitHub repositories)
-                CHANGELOG_LINK=""
-                if [ -n "$repo_url" ] && echo "$repo_url" | grep -q "github.com"; then
-                  # Remove .git suffix if present
-                  repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
-                  CHANGELOG_LINK="[Compare](${repo_clean}/compare/${old}...${new})"
-                fi
-                
-                if [ -n "$CHANGELOG_LINK" ]; then
-                  PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` | ${CHANGELOG_LINK} |"$'\n'
-                else
-                  PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` | - |"$'\n'
-                fi
+                PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` |"$'\n'
               fi
             done <<< "${{ steps.check_updates.outputs.library_updates }}"
             
             PR_BODY="${PR_BODY}"$'\n'
+            
+            # Fetch and add release notes for library updates
+            while IFS='|' read -r name old new repo_url; do
+              if [ -n "$name" ] && [ -n "$repo_url" ] && echo "$repo_url" | grep -q "github.com"; then
+                # Extract owner and repo from GitHub URL
+                repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
+                owner_repo=$(echo "$repo_clean" | sed 's|https://github.com/||')
+                
+                # Fetch release notes for the new version
+                PR_BODY="${PR_BODY}### ${name} (${old} → ${new})"$'\n\n'
+                
+                # Try to get release notes from GitHub API
+                release_notes=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  "https://api.github.com/repos/${owner_repo}/releases/tags/${new}" | \
+                  jq -r '.body // empty' 2>/dev/null || echo "")
+                
+                if [ -n "$release_notes" ]; then
+                  PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
+                else
+                  # Try without 'v' prefix
+                  release_notes=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                    "https://api.github.com/repos/${owner_repo}/releases/tags/v${new}" | \
+                    jq -r '.body // empty' 2>/dev/null || echo "")
+                  
+                  if [ -n "$release_notes" ]; then
+                    PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
+                  else
+                    # No release notes found, show compare link
+                    PR_BODY="${PR_BODY}_Release notes not available. View changes: [${old}...${new}](${repo_clean}/compare/${old}...${new})_"$'\n\n'
+                  fi
+                fi
+              fi
+            done <<< "${{ steps.check_updates.outputs.library_updates }}"
           fi
           
           # Add what to do section
