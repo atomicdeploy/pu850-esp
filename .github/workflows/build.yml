@@ -225,6 +225,12 @@ jobs:
           if [ -f "Build/libraries.json" ]; then
             LIBRARY_LIST=$(python3 -c '
             import json
+            import re
+            
+            def escape_markdown(text):
+                """Escape special markdown characters to prevent injection"""
+                return re.sub(r"([\\`*_{}[\]()#+\-.!|])", r"\\\1", text)
+            
             try:
                 with open("Build/libraries.json", "r") as f:
                     data = json.load(f)
@@ -235,11 +241,13 @@ jobs:
                     website = lib.get("website", "")
                     if not name or not version:
                         continue
+                    # Escape library name to prevent markdown injection
+                    safe_name = escape_markdown(name)
                     if website:
-                        print(f"| [{name}]({website}) | `{version}` |")
+                        print(f"| [{safe_name}]({website}) | `{version}` |")
                     else:
                         search_url = f"https://github.com/search?q={name.replace(\" \", \"+\")}&type=repositories"
-                        print(f"| [{name}]({search_url}) | `{version}` |")
+                        print(f"| [{safe_name}]({search_url}) | `{version}` |")
             except Exception as e:
                 import sys
                 print(f"Error: {e}", file=sys.stderr)
@@ -303,10 +311,17 @@ jobs:
           RAM_BARS_EMPTY=""
           [ $RAM_EMPTY -gt 0 ] && RAM_BARS_EMPTY=$(printf '░%.0s' $(seq 1 $RAM_EMPTY))
           
-          # RAM formatted values
-          RAM_AVAILABLE_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_AVAILABLE}/1024}")
-          RAM_TOTAL_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_TOTAL}/1024}")
-          RAM_USED_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_USED}/1024}")
+          # RAM formatted values (with safe division to avoid inf/nan)
+          # Allow RAM_AVAILABLE to be 0 (valid when all RAM is used), only check RAM_TOTAL
+          if [ "$RAM_TOTAL" -gt 0 ]; then
+            RAM_AVAILABLE_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_AVAILABLE}/1024}")
+            RAM_TOTAL_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_TOTAL}/1024}")
+            RAM_USED_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_USED}/1024}")
+          else
+            RAM_AVAILABLE_KB="0.00"
+            RAM_TOTAL_KB="0.00"
+            RAM_USED_KB="0.00"
+          fi
           
           # Compression saved space
           COMPRESSION_SAVED_KB=$(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}")
