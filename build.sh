@@ -465,6 +465,9 @@ fi
 # Get the size of the binary file
 size=$(stat -c%s "$BIN_FILE" 2>/dev/null || stat -f%z "$BIN_FILE" 2>/dev/null)
 totalUsage=$((100 * size / (flashSize * 1048576)))
+# Calculate available flash space in bytes
+flashTotalBytes=$((flashSize * 1048576))
+flashAvailable=$((flashTotalBytes - size))
 
 # Display the program size and flash usage
 echo -e "\033[0m"
@@ -601,6 +604,8 @@ ORIGINAL_SIZE=${size}
 COMPRESSED_SIZE=${compressedSize}
 COMPRESSION_RATIO=${compressionRatio}
 FLASH_SIZE_MB=${flashSize}
+FLASH_TOTAL=${flashTotalBytes}
+FLASH_AVAILABLE=${flashAvailable}
 FLASH_USAGE_PCT=${totalUsage}
 RAM_USED=${RAM_USED}
 RAM_TOTAL=${RAM_TOTAL}
