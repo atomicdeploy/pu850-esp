@@ -287,14 +287,19 @@ jobs:
           # RAM formatted values (with safe division to avoid inf/nan)
           # Validate all variables to prevent division errors
           if [ "$RAM_TOTAL" -gt 0 ] && [ -n "$RAM_AVAILABLE" ] && [ -n "$RAM_USED" ]; then
-            RAM_AVAILABLE_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_AVAILABLE}/1024}")
-            RAM_TOTAL_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_TOTAL}/1024}")
-            RAM_USED_KB=$(awk "BEGIN {printf \"%.2f\", ${RAM_USED}/1024}")
+            RAM_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${RAM_AVAILABLE}/1024}")
+            RAM_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${RAM_TOTAL}/1024}")
+            RAM_USED_KB=$(awk "BEGIN {printf \"%.0f\", ${RAM_USED}/1024}")
           else
-            RAM_AVAILABLE_KB="0.00"
-            RAM_TOTAL_KB="0.00"
-            RAM_USED_KB="0.00"
+            RAM_AVAILABLE_KB="0"
+            RAM_TOTAL_KB="0"
+            RAM_USED_KB="0"
           fi
+          
+          # Format byte values with thousand separators for visualization section
+          RAM_USED_FORMATTED=$(printf "%'d" ${RAM_USED} 2>/dev/null || echo ${RAM_USED})
+          RAM_AVAILABLE_FORMATTED=$(printf "%'d" ${RAM_AVAILABLE} 2>/dev/null || echo ${RAM_AVAILABLE})
+          RAM_TOTAL_FORMATTED=$(printf "%'d" ${RAM_TOTAL} 2>/dev/null || echo ${RAM_TOTAL})
           
           # Compression saved space
           COMPRESSION_SAVED_KB=$(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}")
@@ -367,9 +372,8 @@ jobs:
           | Metric | Value |
           |--------|-------|
           | 📊 **RAM Usage** | ![${RAM_USAGE_PCT}% Used](https://geps.dev/progress/${RAM_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) |
-          | 🔧 **Used by Globals** | ${RAM_USED_KB} KB (${RAM_USED} bytes) |
-          | ✅ **Available RAM** | ${RAM_AVAILABLE_KB} KB (${RAM_AVAILABLE} bytes) |
-          | 📦 **Total RAM** | ${RAM_TOTAL_KB} KB (${RAM_TOTAL} bytes) |
+          | ✅ **Available RAM** | ${RAM_AVAILABLE_KB} KB |
+          | 📦 **Total RAM** | ${RAM_TOTAL_KB} KB |
           
           ## 📊 Binary File Details
           
@@ -408,6 +412,10 @@ jobs:
           Flash: [${FLASH_BARS_FILLED}${FLASH_BARS_EMPTY}] ${FLASH_USAGE_PCT}%
           RAM:   [${RAM_BARS_FILLED}${RAM_BARS_EMPTY}] ${RAM_USAGE_PCT}%
           \`\`\`
+          
+          **Detailed Memory Usage:**
+          - **Flash:** ${FLASH_USED_KB} KB used ($(printf "%'d" ${FLASH_USED} 2>/dev/null || echo ${FLASH_USED}) bytes), ${FLASH_AVAILABLE_KB} KB available ($(printf "%'d" ${FLASH_AVAILABLE} 2>/dev/null || echo ${FLASH_AVAILABLE}) bytes)
+          - **RAM:** ${RAM_USED_KB} KB used (${RAM_USED_FORMATTED} bytes), ${RAM_AVAILABLE_KB} KB available (${RAM_AVAILABLE_FORMATTED} bytes)
           
           ## 📚 Additional Information
           
