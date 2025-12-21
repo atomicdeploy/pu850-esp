@@ -316,7 +316,7 @@ jobs:
           |----------|-------|
           | 📝 **Sketch Name** | **\`${SKETCH_NAME}\`** |
           | 🎯 **Board** | \`esp8266:esp8266:generic\` |
-          | 💾 **Flash Size** | **${FLASH_SIZE_MB} MB** |
+          | 💾 **Flash Size** | ${FLASH_SIZE_MB} MB |
           | 🕐 **Build Time** | ${BUILD_TIME} |
           | 🔖 **Commit** | [\`${COMMIT_SHA_FULL}\`](https://github.com/${REPO}/commit/${COMMIT_SHA_FULL}) |
           
@@ -415,7 +415,7 @@ jobs:
           \`\`\`
           
           **Detailed Memory Usage:**
-          - **Flash:** ${FLASH_USED_KB} KB used ($(printf "%'d" ${FLASH_USED} 2>/dev/null || echo ${FLASH_USED}) bytes), ${FLASH_AVAILABLE_KB} KB available ($(printf "%'d" ${FLASH_AVAILABLE} 2>/dev/null || echo ${FLASH_AVAILABLE}) bytes)
+          - **Flash:** ${ORIGINAL_SIZE_KB} KB used ($(printf "%'d" ${ORIGINAL_SIZE} 2>/dev/null || echo ${ORIGINAL_SIZE}) bytes), ${FLASH_AVAILABLE_KB} KB available ($(printf "%'d" ${FLASH_AVAILABLE} 2>/dev/null || echo ${FLASH_AVAILABLE}) bytes)
           - **RAM:** ${RAM_USED_KB} KB used (${RAM_USED_FORMATTED} bytes), ${RAM_AVAILABLE_KB} KB available (${RAM_AVAILABLE_FORMATTED} bytes)
           
           ## 📚 Additional Information
