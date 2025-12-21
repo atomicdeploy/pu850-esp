@@ -208,7 +208,8 @@ jobs:
           ORIGINAL_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE}/1024}")
           COMPRESSED_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${COMPRESSED_SIZE}/1024}")
           FLASH_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_SIZE_MB}*1024}")
-          FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_TOTAL_KB} - ${COMPRESSED_SIZE_KB}}")
+          # Use FLASH_AVAILABLE from build-info.txt for consistency with build.sh calculations
+          FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_AVAILABLE}/1024}")
           
           # Calculate flash usage bars for visualization (with bounds checking)
           FLASH_BARS=$((FLASH_USAGE_PCT / 2))
@@ -285,8 +286,9 @@ jobs:
           [ $RAM_EMPTY -gt 0 ] && RAM_BARS_EMPTY=$(printf '░%.0s' $(seq 1 $RAM_EMPTY))
           
           # RAM formatted values (with safe division to avoid inf/nan)
-          # Validate all variables to prevent division errors
-          if [ "$RAM_TOTAL" -gt 0 ] && [ -n "$RAM_AVAILABLE" ] && [ -n "$RAM_USED" ]; then
+          # Validate all variables are numeric before performing comparisons and division
+          if [[ "$RAM_TOTAL" =~ ^[0-9]+$ ]] && [ "$RAM_TOTAL" -gt 0 ] && \
+             [[ "$RAM_AVAILABLE" =~ ^[0-9]+$ ]] && [[ "$RAM_USED" =~ ^[0-9]+$ ]]; then
             RAM_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${RAM_AVAILABLE}/1024}")
             RAM_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${RAM_TOTAL}/1024}")
             RAM_USED_KB=$(awk "BEGIN {printf \"%.0f\", ${RAM_USED}/1024}")
