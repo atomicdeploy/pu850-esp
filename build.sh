@@ -462,10 +462,13 @@ if [ ! -f "$BIN_FILE" ]; then
 	exit 1
 fi
 
-# Get the size of the binary file
+# Get the size of the binary file (ORIGINAL uncompressed size)
+# NOTE: Flash usage is always calculated from the original binary size, not compressed.
+#       The compressed binary is only used for transmission/flashing, but the actual
+#       flash storage consumed is the original (uncompressed) binary size.
 size=$(stat -c%s "$BIN_FILE" 2>/dev/null || stat -f%z "$BIN_FILE" 2>/dev/null)
 totalUsage=$((100 * size / (flashSize * 1048576)))
-# Calculate available flash space in bytes
+# Calculate available flash space in bytes (based on original size)
 flashTotalBytes=$((flashSize * 1048576))
 flashAvailable=$((flashTotalBytes - size))
 

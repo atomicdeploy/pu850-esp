@@ -212,6 +212,8 @@ jobs:
           FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_AVAILABLE}/1024}")
           
           # Calculate flash usage bars for visualization (with bounds checking)
+          # NOTE: FLASH_USAGE_PCT is based on ORIGINAL (uncompressed) binary size from build.sh
+          #       Compressed binary is only used for transmission, not persistent storage
           FLASH_BARS=$((FLASH_USAGE_PCT / 2))
           [ $FLASH_BARS -lt 0 ] && FLASH_BARS=0
           [ $FLASH_BARS -gt 50 ] && FLASH_BARS=50
@@ -419,6 +421,7 @@ jobs:
           
           **Detailed Memory Usage:**
           - **Flash:** ${ORIGINAL_SIZE_KB} KB used ($(printf "%'d" ${ORIGINAL_SIZE} 2>/dev/null || echo ${ORIGINAL_SIZE}) bytes), ${FLASH_AVAILABLE_KB} KB available ($(printf "%'d" ${FLASH_AVAILABLE} 2>/dev/null || echo ${FLASH_AVAILABLE}) bytes)
+            > Note: Flash usage calculated from original uncompressed binary. Compressed binary (${COMPRESSED_SIZE_KB} KB) is only used for transmission/flashing.
           - **RAM:** ${RAM_USED_KB} KB used (${RAM_USED_FORMATTED} bytes), ${RAM_AVAILABLE_KB} KB available (${RAM_AVAILABLE_FORMATTED} bytes)
           
           ## 📚 Additional Information
