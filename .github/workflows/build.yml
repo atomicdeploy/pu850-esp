@@ -372,6 +372,7 @@ jobs:
           | Metric | Value |
           |--------|-------|
           | 📊 **RAM Usage** | ![${RAM_USAGE_PCT}% Used](https://geps.dev/progress/${RAM_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) |
+          | 📚 **Used by Globals** | ${RAM_USED_KB} KB |
           | ✅ **Available RAM** | ${RAM_AVAILABLE_KB} KB |
           | 📦 **Total RAM** | ${RAM_TOTAL_KB} KB |
           
