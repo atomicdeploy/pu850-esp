@@ -46,9 +46,9 @@ jobs:
         working-directory: ASA0002E
         run: |
           arduino-cli --config-file .vscode/arduino-cli.yaml core update-index
-          # Extract platform version from sketch.yaml using sed (more portable)
+          # Extract platform version from sketch.yaml using awk (more portable)
           # Format: "platform: esp8266:esp8266 (3.1.2)"
-          PLATFORM_VERSION=$(grep 'platform: esp8266:esp8266' sketch.yaml | sed 's/.*(\([0-9.]*\)).*/\1/' 2>/dev/null)
+          PLATFORM_VERSION=$(grep 'platform: esp8266:esp8266' sketch.yaml | awk -F'[()]' '{print $2}' 2>/dev/null)
           # Validate version format (should be digits and dots only)
           if ! echo "$PLATFORM_VERSION" | grep -qE '^[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
             echo "Warning: Could not extract valid platform version, using default 3.1.2"
@@ -63,11 +63,25 @@ jobs:
           # Parse libraries from sketch.yaml and install them
           # Only match lines after "libraries:" that start with "- " and have format "LibraryName (version)"
           # Exclude lines containing "platform:" to avoid matching platform entries
+          # TODO: make use of a real YAML library instead
           grep -A100 'libraries:' sketch.yaml | grep -E '^\s+-\s+[^:]+\([^)]+\)' | grep -v 'platform:' | while read -r line; do
-            # Extract library name (everything before the last '(' with version)
-            lib_name=$(echo "$line" | sed -E 's/^\s*-\s*(.+)\s*\([^)]+\)\s*$/\1/' | sed 's/[[:space:]]*$//')
-            # Extract version (content inside the last parentheses)
-            lib_version=$(echo "$line" | sed -E 's/.*\(([^)]+)\).*/\1/')
+            # Extract library name and version using awk with index/substr (avoids sed regex issues)
+            lib_name=$(echo "$line" | awk '{
+              open_paren = index($0, "(")
+              if (open_paren > 0) {
+                name = substr($0, 1, open_paren - 1)
+                gsub(/^[[:space:]]*-[[:space:]]*/, "", name)
+                gsub(/[[:space:]]*$/, "", name)
+                print name
+              }
+            }')
+            lib_version=$(echo "$line" | awk '{
+              open_paren = index($0, "(")
+              close_paren = index($0, ")")
+              if (open_paren > 0 && close_paren > open_paren) {
+                print substr($0, open_paren + 1, close_paren - open_paren - 1)
+              }
+            }')
             echo "Installing library: ${lib_name}@${lib_version}"
             arduino-cli --config-file .vscode/arduino-cli.yaml lib install "${lib_name}@${lib_version}" || \
               arduino-cli --config-file .vscode/arduino-cli.yaml lib install "${lib_name}"
@@ -79,6 +93,18 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
+      - name: Export library information
+        working-directory: ASA0002E
+        run: |
+          # Export installed library information to a file for use in the summary
+          mkdir -p Build
+          if arduino-cli --config-file .vscode/arduino-cli.yaml lib list --json > Build/libraries.json; then
+            echo "✅ Library information exported to Build/libraries.json"
+          else
+            echo "⚠️ Failed to export library information, writing empty JSON array to Build/libraries.json"
+            echo "[]" > Build/libraries.json
+          fi
+
       - name: Upload build artifacts
         id: upload_artifacts
         uses: actions/upload-artifact@v6
@@ -88,6 +114,7 @@ jobs:
             ASA0002E/Build/*.bin
             ASA0002E/Build/*.md5
             ASA0002E/Build/build-info.txt
+            ASA0002E/Build/libraries.json
           if-no-files-found: error
 
       - name: Generate build summary
@@ -99,7 +126,7 @@ jobs:
           if [ -f Build/build-info.txt ]; then
             source Build/build-info.txt
           else
-            echo "Error: Build/build-info.txt not found. Ensure build.sh generated this file before running the build summary step." >&2
+            echo "❌ Error: Build/build-info.txt not found. Ensure build.sh generated this file before running the build summary step." >&2
             exit 1
           fi
           
@@ -108,22 +135,22 @@ jobs:
           
           # Ensure MD5 file exists
           if [ ! -f "$MD5_FILE" ]; then
-            echo "Error: MD5 file '$MD5_FILE' not found. Ensure the build step generated this file." >&2
+            echo "❌ Error: MD5 file '$MD5_FILE' not found. Ensure the build step generated this file." >&2
             exit 1
           fi
           
           # Read MD5 hashes with basic validation
           MD5_UNCOMPRESSED=$(grep -v "compressed" "$MD5_FILE" | awk '{print $1}') || {
-            echo "Error parsing MD5 file '$MD5_FILE' for uncompressed hash." >&2
+            echo "❌ Error parsing MD5 file '$MD5_FILE' for uncompressed hash." >&2
             exit 1
           }
           MD5_COMPRESSED=$(grep "compressed" "$MD5_FILE" | awk '{print $1}') || {
-            echo "Error parsing MD5 file '$MD5_FILE' for compressed hash." >&2
+            echo "❌ Error parsing MD5 file '$MD5_FILE' for compressed hash." >&2
             exit 1
           }
           
           if [ -z "$MD5_UNCOMPRESSED" ] || [ -z "$MD5_COMPRESSED" ]; then
-            echo "Error: MD5 hashes could not be extracted from '$MD5_FILE' (one or both hashes are empty)." >&2
+            echo "❌ Error: MD5 hashes could not be extracted from '$MD5_FILE' (one or both hashes are empty)." >&2
             exit 1
           fi
           
@@ -141,7 +168,7 @@ jobs:
           MAX_RETRIES=5
           DELAY=2
           
-          # Retry fetching artifacts until the "firmware" artifact is available or retries are exhausted
+          # Retry fetching artifacts until the "firmware" artifact is available (or retries are exhausted)
           for ((i=1; i<=MAX_RETRIES; i++)); do
             echo "🔁 Attempt $i to fetch artifacts for run ${RUN_ID}..."
             ARTIFACTS_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
@@ -181,19 +208,115 @@ jobs:
           ORIGINAL_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE}/1024}")
           COMPRESSED_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${COMPRESSED_SIZE}/1024}")
           FLASH_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_SIZE_MB}*1024}")
-          FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_TOTAL_KB} - ${COMPRESSED_SIZE_KB}}")
+          
+          # Sanity check: FLASH_AVAILABLE must equal FLASH_TOTAL - ORIGINAL_SIZE
+          [ -z "${FLASH_TOTAL}" ] && FLASH_TOTAL=$((FLASH_SIZE_MB * 1048576))
+          [ "${FLASH_AVAILABLE}" != "$((FLASH_TOTAL - ORIGINAL_SIZE))" ] && { echo "ERROR: FLASH_AVAILABLE mismatch: got ${FLASH_AVAILABLE}, expected $((FLASH_TOTAL - ORIGINAL_SIZE))"; exit 1; }
+          
+          FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_AVAILABLE}/1024}")
           
           # Calculate flash usage bars for visualization (with bounds checking)
+          # NOTE: FLASH_USAGE_PCT is based on ORIGINAL (uncompressed) binary size from build.sh
+          #       Compressed binary is only used for transmission, not persistent storage
           FLASH_BARS=$((FLASH_USAGE_PCT / 2))
           [ $FLASH_BARS -lt 0 ] && FLASH_BARS=0
           [ $FLASH_BARS -gt 50 ] && FLASH_BARS=50
           
+          # Calculate RAM usage bars for visualization (with bounds checking)
+          RAM_BARS=$((RAM_USAGE_PCT / 2))
+          [ $RAM_BARS -lt 0 ] && RAM_BARS=0
+          [ $RAM_BARS -gt 50 ] && RAM_BARS=50
+          
+          # Parse library list from libraries.json (generated by `arduino-cli lib list --json`)
+          # Extract name, version, and website URL for each installed library
+          LIBRARY_LIST=""
+          if [ -f "Build/libraries.json" ]; then
+            LIBRARY_LIST=$(python3 -c 'import json; import re; from urllib.parse import quote_plus; exec("def escape_markdown(text):\n    return re.sub(r\"([\\\\`*_{}[\\]()#+\\-.!|])\", r\"\\\\\\1\", text)\n\ntry:\n    with open(\"Build/libraries.json\", \"r\") as f:\n        data = json.load(f)\n    for lib_info in data.get(\"installed_libraries\", []):\n        lib = lib_info.get(\"library\", {})\n        name = lib.get(\"name\", \"\")\n        version = lib.get(\"version\", \"\")\n        website = lib.get(\"website\", \"\")\n        if not name or not version:\n            continue\n        safe_name = escape_markdown(name)\n        if website:\n            print(f\"| **[{safe_name}]({website})** | `{version}` |\")\n        else:\n            search_url = f\"https://github.com/search?q={quote_plus(name)}&type=repositories\"\n            print(f\"| [{safe_name}]({search_url}) | `{version}` |\")\nexcept Exception as e:\n    import sys\n    print(f\"Error parsing libraries.json: {e}\", file=sys.stderr)\n    print(\"| _Library list unavailable due to parsing error_ | - |\")\n")')
+          else
+            # Fallback to parsing sketch.yaml if libraries.json is not available
+            # This awk script parsing library information from sketch.yaml doesn't handle edge cases well. If a library name contains parentheses or special characters, the substring extraction using index() could produce incorrect results. Also, if sketch.yaml is malformed (e.g., missing closing parenthesis), the script could extract garbage data without any error indication. TODO: Consider adding validation to ensure the extracted name and version are non-empty before printing them.
+            LIBRARY_LIST=$(awk '
+              /libraries:/ { in_libs=1; next }
+              in_libs && /-/ && /\(/ && /\)/ {
+                open_paren = index($0, "(")
+                close_paren = index($0, ")")
+                if (open_paren > 0 && close_paren > open_paren) {
+                  name = substr($0, 1, open_paren - 1)
+                  version = substr($0, open_paren + 1, close_paren - open_paren - 1)
+                  gsub(/^[[:space:]]*-[[:space:]]*/, "", name)
+                  gsub(/[[:space:]]*$/, "", name)
+                  # Validate library name to contain only expected characters to avoid breaking markdown/URLs
+                  # Allowed: letters, digits, space, underscore, dash, dot, comma, colon, plus
+                  if (name !~ /^[A-Za-z0-9 _.,:+-]+$/) {
+                    next
+                  }
+                  # Best-effort URL encoding for spaces in library name (align with Python replace(" ", "+"))
+                  gsub(/[[:space:]]+/, "+", name)
+                  lib_url = "https://github.com/search?q=" name "&type=repositories"
+                  print "| **[" name "](" lib_url ")** | `" version "` |"
+                }
+              }
+              /^[^[:space:]]/ && in_libs && !/libraries:/ { exit }
+            ' sketch.yaml)
+          fi
+          
+          # Extract platform version from sketch.yaml before heredoc to avoid command substitution issues
+          # Use awk to extract version between parentheses without regex patterns
+          PLATFORM_VERSION=$(awk '
+            /platform: esp8266:esp8266/ && /\(/ && /\)/ {
+              open_paren = index($0, "(")
+              close_paren = index($0, ")")
+              if (open_paren > 0 && close_paren > open_paren) {
+                print substr($0, open_paren + 1, close_paren - open_paren - 1)
+                exit
+              }
+            }
+          ' sketch.yaml)
+          # Default to Unknown if not found
+          [ -z "$PLATFORM_VERSION" ] && PLATFORM_VERSION="Unknown"
+          
           # Extract key board parameters for display
-          # Default values: CPU=80MHz, Crystal=26MHz, Flash=40MHz/QIO
-          CRYSTAL_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'CrystalFreq=\K[^,]+' || echo "26")
-          FLASH_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'FlashFreq=\K[^,]+' || echo "40")
-          FLASH_MODE=$(echo "$BOARD_PARAMS" | grep -oP 'FlashMode=\K[^,]+' || echo "qio")
-          CPU_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'xtal=\K[^,]+' || echo "80")
+          # Default values are Unknown
+          CRYSTAL_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'CrystalFreq=\K[^,]+' || echo "Unknown")
+          FLASH_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'FlashFreq=\K[^,]+' || echo "Unknown")
+          FLASH_MODE=$(echo "$BOARD_PARAMS" | grep -oP 'FlashMode=\K[^,]+' || echo "Unknown")
+          CPU_FREQ=$(echo "$BOARD_PARAMS" | grep -oP 'xtal=\K[^,]+' || echo "Unknown")
+          
+          # Pre-calculate all visualizations and formatted values to avoid command substitution inside heredoc
+          # Flash usage visualization
+          FLASH_BARS_FILLED=""
+          [ $FLASH_BARS -gt 0 ] && FLASH_BARS_FILLED=$(printf '█%.0s' $(seq 1 $FLASH_BARS))
+          FLASH_EMPTY=$((50 - $FLASH_BARS))
+          FLASH_BARS_EMPTY=""
+          [ $FLASH_EMPTY -gt 0 ] && FLASH_BARS_EMPTY=$(printf '░%.0s' $(seq 1 $FLASH_EMPTY))
+          
+          # RAM usage visualization
+          RAM_BARS_FILLED=""
+          [ $RAM_BARS -gt 0 ] && RAM_BARS_FILLED=$(printf '█%.0s' $(seq 1 $RAM_BARS))
+          RAM_EMPTY=$((50 - $RAM_BARS))
+          RAM_BARS_EMPTY=""
+          [ $RAM_EMPTY -gt 0 ] && RAM_BARS_EMPTY=$(printf '░%.0s' $(seq 1 $RAM_EMPTY))
+          
+          # RAM formatted values (with safe division to avoid inf/nan)
+          # Validate all variables are numeric before performing comparisons and division
+          if [[ "$RAM_TOTAL" =~ ^[0-9]+$ ]] && [ "$RAM_TOTAL" -gt 0 ] && \
+             [[ "$RAM_AVAILABLE" =~ ^[0-9]+$ ]] && [[ "$RAM_USED" =~ ^[0-9]+$ ]]; then
+            RAM_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${RAM_AVAILABLE}/1024}")
+            RAM_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${RAM_TOTAL}/1024}")
+            RAM_USED_KB=$(awk "BEGIN {printf \"%.0f\", ${RAM_USED}/1024}")
+          else
+            RAM_AVAILABLE_KB="0"
+            RAM_TOTAL_KB="0"
+            RAM_USED_KB="0"
+          fi
+          
+          # Format byte values with thousand separators for visualization section
+          RAM_USED_FORMATTED=$(printf "%'d" ${RAM_USED} 2>/dev/null || echo ${RAM_USED})
+          RAM_AVAILABLE_FORMATTED=$(printf "%'d" ${RAM_AVAILABLE} 2>/dev/null || echo ${RAM_AVAILABLE})
+          RAM_TOTAL_FORMATTED=$(printf "%'d" ${RAM_TOTAL} 2>/dev/null || echo ${RAM_TOTAL})
+          
+          # Compression saved space
+          COMPRESSION_SAVED_KB=$(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}")
           
           # Create the summary
           cat >> $GITHUB_STEP_SUMMARY << EOF
@@ -207,7 +330,7 @@ jobs:
           |----------|-------|
           | 📝 **Sketch Name** | **\`${SKETCH_NAME}\`** |
           | 🎯 **Board** | \`esp8266:esp8266:generic\` |
-          | 💾 **Flash Size** | **${FLASH_SIZE_MB} MB** |
+          | 💾 **Flash Size** | ${FLASH_SIZE_MB} MB |
           | 🕐 **Build Time** | ${BUILD_TIME} |
           | 🔖 **Commit** | [\`${COMMIT_SHA_FULL}\`](https://github.com/${REPO}/commit/${COMMIT_SHA_FULL}) |
           
@@ -237,6 +360,19 @@ jobs:
           
           </details>
           
+          <details>
+          <summary>📚 Used Libraries (Click to expand)</summary>
+          
+          The following libraries were used in this build (as specified in \`sketch.yaml\`):
+          
+          | Library Name | Version |
+          |--------------|---------|
+          ${LIBRARY_LIST}
+          
+          </details>
+          
+          **🔩 Platform Core:** [\`${PLATFORM_VERSION}\`](https://github.com/esp8266/Arduino/releases/tag/${PLATFORM_VERSION})
+          
           ## 💾 Flash Memory Usage
           
           | Metric | Value |
@@ -245,31 +381,23 @@ jobs:
           | ✅ **Available Space** | ${FLASH_AVAILABLE_KB} KB |
           | 📦 **Total Flash** | ${FLASH_TOTAL_KB} KB |
           
-          **Usage Visualization:**
+          ## 🧠 RAM (SRAM) Usage
           
-          \`\`\`
-          Flash: [$(
-            # Print filled bars
-            [ $FLASH_BARS -gt 0 ] && printf '█%.0s' $(seq 1 $FLASH_BARS)
-            
-            # Print empty bars
-            EMPTY=$((50 - $FLASH_BARS))
-            [ $EMPTY -gt 0 ] && printf '░%.0s' $(seq 1 $EMPTY)
-          )] ${FLASH_USAGE_PCT}%
-          \`\`\`
+          | Metric | Value |
+          |--------|-------|
+          | 📊 **RAM Usage** | ![${RAM_USAGE_PCT}% Used](https://geps.dev/progress/${RAM_USAGE_PCT}?dangerColor=dc3545&warningColor=ffc107&successColor=28a745) |
+          | 📚 **Used by Globals** | ${RAM_USED_KB} KB |
+          | ✅ **Available RAM** | ${RAM_AVAILABLE_KB} KB |
+          | 📦 **Total RAM** | ${RAM_TOTAL_KB} KB |
           
           ## 📊 Binary File Details
           
           | 📦 File Type | Size | 🔐 MD5 Hash | 🔗 Download URL |
           |---------------|------|--------------|-----------------|
-          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** ($(printf "%'d" ${ORIGINAL_SIZE}) bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
-          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** ($(printf "%'d" ${COMPRESSED_SIZE}) bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
+          | 📄 **Original Binary** | **${ORIGINAL_SIZE_KB} KB** ($(printf "%'d" ${ORIGINAL_SIZE} 2>/dev/null || echo ${ORIGINAL_SIZE}) bytes) | \`${MD5_UNCOMPRESSED}\` | _N/A_ |
+          | 🗄️ **Compressed (gzip)** | **${COMPRESSED_SIZE_KB} KB** ($(printf "%'d" ${COMPRESSED_SIZE} 2>/dev/null || echo ${COMPRESSED_SIZE}) bytes) | \`${MD5_COMPRESSED}\` | 📥 **[Download Firmware](${ARTIFACT_URL})** |
           
-          - **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved $(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE_KB} - ${COMPRESSED_SIZE_KB}}") KB, using gzip level 9)
-          
-          **Compression Visualization:**
-          
-          ![${COMPRESSION_RATIO}% Compression](https://geps.dev/progress/${COMPRESSION_RATIO}?dangerColor=28a745&warningColor=ffc107&successColor=dc3545)
+          **📈 Compression Ratio:** **\`${COMPRESSION_RATIO}%\`** (saved ${COMPRESSION_SAVED_KB} KB) - using gzip level 9
           
           ### 📦 Artifact Contents
           
@@ -292,11 +420,23 @@ jobs:
           gunzip -c ${SKETCH_NAME}.bin > ${SKETCH_NAME}.bin.uncompressed
           echo "${MD5_UNCOMPRESSED}  ${SKETCH_NAME}.bin.uncompressed" | md5sum -c
           \`\`\`
+
+          ## 💡 Usage Visualization
+          
+          \`\`\`
+          Flash: [${FLASH_BARS_FILLED}${FLASH_BARS_EMPTY}] ${FLASH_USAGE_PCT}%
+          RAM:   [${RAM_BARS_FILLED}${RAM_BARS_EMPTY}] ${RAM_USAGE_PCT}%
+          \`\`\`
+          
+          **Detailed Memory Usage:**
+          - **Flash:** ${ORIGINAL_SIZE_KB} KB used ($(printf "%'d" ${ORIGINAL_SIZE} 2>/dev/null || echo ${ORIGINAL_SIZE}) bytes), ${FLASH_AVAILABLE_KB} KB available ($(printf "%'d" ${FLASH_AVAILABLE} 2>/dev/null || echo ${FLASH_AVAILABLE}) bytes)
+            > Note: Flash usage calculated from original uncompressed binary. Compressed binary (${COMPRESSED_SIZE_KB} KB) is only used for transmission/flashing.
+          - **RAM:** ${RAM_USED_KB} KB used (${RAM_USED_FORMATTED} bytes), ${RAM_AVAILABLE_KB} KB available (${RAM_AVAILABLE_FORMATTED} bytes)
           
           ## 📚 Additional Information
           
           - **Build System:** [Arduino CLI](https://arduino.github.io/arduino-cli/)
-          - **Platform:** ESP8266 Arduino Core
+          - **Platform:** [ESP8266 Arduino Core](https://github.com/esp8266/Arduino)
           - **Workflow:** [Build Workflow](.github/workflows/build.yml)
           - **Repository:** [${REPO}](https://github.com/${REPO})
           
