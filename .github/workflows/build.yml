@@ -208,7 +208,27 @@ jobs:
           ORIGINAL_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${ORIGINAL_SIZE}/1024}")
           COMPRESSED_SIZE_KB=$(awk "BEGIN {printf \"%.0f\", ${COMPRESSED_SIZE}/1024}")
           FLASH_TOTAL_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_SIZE_MB}*1024}")
-          # Use FLASH_AVAILABLE from build-info.txt for consistency with build.sh calculations
+          
+          # Sanity check: Verify FLASH_AVAILABLE equals FLASH_TOTAL - ORIGINAL_SIZE
+          # Calculate expected FLASH_TOTAL in bytes if not present
+          if [ -z "${FLASH_TOTAL}" ] || [ "${FLASH_TOTAL}" = "0" ]; then
+            FLASH_TOTAL=$((FLASH_SIZE_MB * 1048576))
+            echo "⚠️ FLASH_TOTAL not found in build-info.txt, calculated as ${FLASH_TOTAL} bytes"
+          fi
+          
+          # Calculate expected FLASH_AVAILABLE
+          EXPECTED_FLASH_AVAILABLE=$((FLASH_TOTAL - ORIGINAL_SIZE))
+          
+          # Verify consistency
+          if [ "${FLASH_AVAILABLE}" != "${EXPECTED_FLASH_AVAILABLE}" ]; then
+            echo "⚠️ FLASH_AVAILABLE mismatch detected:"
+            echo "   From build-info.txt: ${FLASH_AVAILABLE} bytes"
+            echo "   Expected (FLASH_TOTAL - ORIGINAL_SIZE): ${EXPECTED_FLASH_AVAILABLE} bytes"
+            echo "   Using expected value for consistency"
+            FLASH_AVAILABLE=${EXPECTED_FLASH_AVAILABLE}
+          fi
+          
+          # Use FLASH_AVAILABLE from build-info.txt (or corrected value) for consistency
           FLASH_AVAILABLE_KB=$(awk "BEGIN {printf \"%.0f\", ${FLASH_AVAILABLE}/1024}")
           
           # Calculate flash usage bars for visualization (with bounds checking)
