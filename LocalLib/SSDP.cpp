@@ -222,10 +222,10 @@ void initSSDP()
 			return;
 		}
 
-		// (TODO) Access-Control-Allow-Origin: *
-
-		// request->send(200, "text/xml", SSDP.schema());
-		request->send(200, "text/xml", schema);
+		// Add CORS header to allow cross-origin requests
+		AsyncWebServerResponse *response = request->beginResponse(200, "text/xml", schema);
+		response->addHeader("Access-Control-Allow-Origin", "*");
+		request->send(response);
 	});
 
 	SSDPDevice.begin();
