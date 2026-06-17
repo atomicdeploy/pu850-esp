@@ -113,8 +113,9 @@
 
 WiFiUDP ntpUDP;
 
-NTPClient timeClient(ntpUDP); // TODO: configure NTP
-// NTPClient timeClient(ntpUDP, "pool.ntp.org", 36000, 60000);
+// NTP client configured to use pool.ntp.org with UTC timezone
+// Update interval: 60000ms (1 minute)
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
 
 // JSONVar dataValues;
 
@@ -146,23 +147,25 @@ void WiFi_Setup()
 
 	if (ap_enabled)
 	{
-		// TODO: set static IP for AP
+		// Configure static IP for AP mode (192.168.4.1)
 		WiFi.softAPConfig( IPAddress(192,168,4,1), IPAddress(0,0,0,0), IPAddress(255,255,255,0) );
 	}
 
 	if (sta_enabled)
 	{
-		// TODO: set static IP for station
-		/*
+		// Configure static IP for station mode if DHCP is disabled
 		if ( !flashSettings.dhcp_enabled )
 		{
-			IPAddress ip(192,168,1,101);
-			IPAddress gateway(192,168,1,1);
-			IPAddress subnet(255,255,255,0);
-			IPAddress dns(8,8,8,8);
+			IPAddress ip(flashSettings.static_ip[0], flashSettings.static_ip[1], 
+			             flashSettings.static_ip[2], flashSettings.static_ip[3]);
+			IPAddress gateway(flashSettings.gateway[0], flashSettings.gateway[1], 
+			                  flashSettings.gateway[2], flashSettings.gateway[3]);
+			IPAddress subnet(flashSettings.subnet[0], flashSettings.subnet[1], 
+			                 flashSettings.subnet[2], flashSettings.subnet[3]);
+			IPAddress dns(flashSettings.dns[0], flashSettings.dns[1], 
+			              flashSettings.dns[2], flashSettings.dns[3]);
 			WiFi.config(ip, gateway, subnet, dns);
 		}
-		*/
 	}
 
 	if (wifi_mode != WIFI_OFF)
@@ -211,6 +214,37 @@ void Settings_Clear()
 	memset(flashSettings.ap_password,  Null_, sizeof(flashSettings.ap_password));
 	memset(flashSettings.sta_ssid,     Null_, sizeof(flashSettings.sta_ssid));
 	memset(flashSettings.sta_password, Null_, sizeof(flashSettings.sta_password));
+	
+	// Initialize static IP settings with defaults
+	flashSettings.dhcp_enabled = true; // Enable DHCP by default
+	
+	// Default static IP: 192.168.1.100
+	flashSettings.static_ip[0] = 192;
+	flashSettings.static_ip[1] = 168;
+	flashSettings.static_ip[2] = 1;
+	flashSettings.static_ip[3] = 100;
+	
+	// Default gateway: 192.168.1.1
+	flashSettings.gateway[0] = 192;
+	flashSettings.gateway[1] = 168;
+	flashSettings.gateway[2] = 1;
+	flashSettings.gateway[3] = 1;
+	
+	// Default subnet mask: 255.255.255.0
+	flashSettings.subnet[0] = 255;
+	flashSettings.subnet[1] = 255;
+	flashSettings.subnet[2] = 255;
+	flashSettings.subnet[3] = 0;
+	
+	// Default DNS: 8.8.8.8 (Google DNS)
+	flashSettings.dns[0] = 8;
+	flashSettings.dns[1] = 8;
+	flashSettings.dns[2] = 8;
+	flashSettings.dns[3] = 8;
+	
+	// Default port settings
+	flashSettings.web_port = 80;
+	flashSettings.telnet_port = 23;
 }
 
 bool Settings_Read()
@@ -234,7 +268,7 @@ bool Settings_Read()
 		}
 	}
 
-	settingsError = (flashSettings.crc32 == ErrorNum_) ? 1 : 2;
+	settingsError = (flashSettings.crc32 == ErrorNum_) ? SETTINGS_ERROR_NO_DATA : SETTINGS_ERROR_CORRUPTED;
 
 	Settings_Clear();
 
@@ -573,8 +607,6 @@ void setup()
 	initSessions();
 
 	timeClient.begin();
-
-	// timeClient.setTimeOffset(0); // TODO: set time offset
 
 	server->onNotFound([&](AsyncWebServerRequest *request) {
 		/*
@@ -2431,16 +2463,15 @@ void loop()
 
 				if (settingsError && settingsError != 0xff)
 				{
-					// (TODO)
-
-					// switch (settingsError)
-					// {
-					// 	case 1: Request_SendMessage_ToPU("\x02" "ESP Restored",  0, 0, ID_MemoryIcon_); // No data
-					// 	case 2: Request_SendMessage_ToPU("\x02" "ESP Corrupted", 0, 0, ID_MemoryIcon_); // Invalid data
-					// 	case 3: Request_SendMessage_ToPU("\x02" "ESP RestByUsr", 0, 0, ID_MemoryIcon_); // Request by user
-					// }
+					switch (settingsError)
+					{
+						case SETTINGS_ERROR_NO_DATA:        Request_SendMessage_ToPU("\x02" "ESP Restored",  0, 0, ID_MemoryIcon_); break;
+						case SETTINGS_ERROR_CORRUPTED:      Request_SendMessage_ToPU("\x02" "ESP Corrupted", 0, 0, ID_MemoryIcon_); break;
+						case SETTINGS_ERROR_USER_REQUEST:   Request_SendMessage_ToPU("\x02" "ESP RestByUsr", 0, 0, ID_MemoryIcon_); break;
+					}
 
 					// SendCommand(ESP_Prefix_Request, ESP_Suffix_RestoreBackup, settingsError);
+					// NOTE: ESP_Suffix_RestoreBackup is buggy on PU850 side, keeping commented out
 
 					settingsError = 0xff;
 				}
