@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           # Clone to a directory with the same name to match the sketch file (Arduino CLI requirement)
