@@ -103,7 +103,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.check_secret.outputs.skip != 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
