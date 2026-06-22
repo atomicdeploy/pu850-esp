@@ -247,10 +247,101 @@ const DeviceParameter DeviceParameters[] =
 
 // Map of command-function pairs
 const CommandEntry commandMap[] = {
-	{"echo",    [](const C8* args) -> void { String_NewLine_ToShell(args); }},
-	// {"strlen",  [](const C8* args) -> void { String_Num_NewLine_ToShell("Length = ", strlen(args)); }},
+	{"help",    [](const C8* args) -> void {
+		String_NewLine_ToShell("Available commands:");
+		String_NewLine_ToShell("  help       - Show this help message");
+		String_NewLine_ToShell("  info       - Display system information");
+		String_NewLine_ToShell("  wifi       - Display WiFi information");
+		String_NewLine_ToShell("  mem        - Display memory information");
+		String_NewLine_ToShell("  version    - Display version information");
+		String_NewLine_ToShell("  reset      - Display reset information");
+		String_NewLine_ToShell("  uptime     - Display uptime");
+		String_NewLine_ToShell("  free       - Display free heap memory");
+		String_NewLine_ToShell("  scan       - Scan for WiFi networks");
+		String_NewLine_ToShell("  list       - List all parameters");
+		String_NewLine_ToShell("  strlen     - Show length of argument");
+		String_NewLine_ToShell("  echo       - Echo arguments");
+		String_NewLine_ToShell("  hex        - Convert number to hex");
+		String_NewLine_ToShell("  get        - Get parameter value");
+		String_NewLine_ToShell("  set        - Set parameter value");
+		String_NewLine_ToShell("  save       - Save settings to flash");
+		String_NewLine_ToShell("  restore    - Restore settings from flash");
+		String_NewLine_ToShell("  connect    - Connect to WiFi");
+		String_NewLine_ToShell("  status     - Show WiFi connection status");
+		String_NewLine_ToShell("  reboot     - Reboot the device");
+		String_NewLine_ToShell("  busy       - Send busy status to PU");
+		String_NewLine_ToShell("  ready      - Send ready status to PU");
+		String_NewLine_ToShell("  beep       - Beep N times");
+		String_NewLine_ToShell("  upper      - Enable uppercase mode");
+		String_NewLine_ToShell("  noupper    - Disable uppercase mode");
+		String_NewLine_ToShell("  clear/cls  - Clear screen");
+		String_NewLine_ToShell("  exit       - Exit shell");
+	}},
 
-	// {"file",    [](const C8* args) -> void { String_Num_NewLine_ToShell("Result = ", (S32)Request_GiveFile(args)); WaitForBulkDataComplete(); }},
+	{"info",    [](const C8* args) -> void {
+		String_NewLine_ToShell("System Information:");
+		String_ToShell("  Chip ID: 0x");
+		HexNumber_ToShell(ESP.getChipId());
+		NewLine_ToShell(1);
+		String_ToShell("  Flash ID: 0x");
+		HexNumber_ToShell(ESP.getFlashChipId());
+		NewLine_ToShell(1);
+		String_ToShell("  Flash Size: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getFlashChipSize()).c_str());
+		String_ToShell("  Sketch Size: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getSketchSize()).c_str());
+		String_ToShell("  Free Sketch: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getFreeSketchSpace()).c_str());
+		String_ToShell("  Free Heap: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getFreeHeap()).c_str());
+		String_ToShell("  Firmware: ");
+		String_NewLine_ToShell(ESP.getSketchMD5().c_str());
+		String_ToShell("  Build: " __DATE__ " " __TIME__);
+		NewLine_ToShell(1);
+		String_ToShell("  Uptime: ");
+		String_NewLine_ToShell(getFormattedUptime(millis() / 1000).c_str());
+		String_ToShell("  Reset: ");
+		String_NewLine_ToShell(ESP.getResetInfo().c_str());
+	}},
+
+	{"wifi",    [](const C8* args) -> void {
+		String_NewLine_ToShell("WiFi Information:");
+		String_ToShell("  Hostname: ");
+		String_NewLine_ToShell(WiFi.hostname().c_str());
+		String_ToShell("  Station MAC: ");
+		String_NewLine_ToShell(WiFi.macAddress().c_str());
+		String_ToShell("  Station IP: ");
+		String_NewLine_ToShell(WiFi.localIP().toString().c_str());
+		String_ToShell("  Station SSID: ");
+		String_NewLine_ToShell(WiFi.SSID().c_str());
+		String_ToShell("  Station RSSI: ");
+		Number_ToShell(WiFi.RSSI());
+		String_NewLine_ToShell(" dBm");
+		String_ToShell("  AP MAC: ");
+		String_NewLine_ToShell(WiFi.softAPmacAddress().c_str());
+		String_ToShell("  AP IP: ");
+		String_NewLine_ToShell(WiFi.softAPIP().toString().c_str());
+		String_ToShell("  AP Clients: ");
+		Number_ToShell(WiFi.softAPgetStationNum());
+		NewLine_ToShell(1);
+	}},
+
+	{"list",    [](const C8* args) -> void {
+		String_NewLine_ToShell("Available parameters:");
+		for (U8 i = 0; i < numParameters; i++) {
+			String_ToShell("  ");
+			String_ToShell(DeviceParameters[i].name);
+			if (DeviceParameters[i].type & FLAG_READONLY) {
+				String_NewLine_ToShell(" (read-only)");
+			} else {
+				NewLine_ToShell(1);
+			}
+		}
+	}},
+
+	{"strlen",  [](const C8* args) -> void { String_Num_NewLine_ToShell("Length = ", strlen(args)); }},
+
+	{"echo",    [](const C8* args) -> void { String_NewLine_ToShell(args); }},
 
 	{"save",    [](const C8* args) -> void { String_NewLine_ToShell(Settings_Write() ? "Saved" : "Failed"); }},
 	{"restore", [](const C8* args) -> void { String_NewLine_ToShell(Settings_Read()  ? "OK" : (settingsError == 1 ? "Empty data" : (settingsError == 2 ? "CRC Mismatch" : "Unknown Error"))); }},
@@ -272,6 +363,86 @@ const CommandEntry commandMap[] = {
 			case STATION_GOT_IP:         String_NewLine_ToShell("Station Got IP");         break;
 			default:                     String_NewLine_ToShell("Unknown Status");         break;
 		}
+	}},
+
+	{"mem",     [](const C8* args) -> void {
+		String_NewLine_ToShell("Memory Information:");
+		String_ToShell("  Free Heap: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getFreeHeap()).c_str());
+		String_ToShell("  Heap Fragmentation: ");
+		Number_ToShell(ESP.getHeapFragmentation());
+		String_NewLine_ToShell("%");
+		String_ToShell("  Max Free Block: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getMaxFreeBlockSize()).c_str());
+		String_ToShell("  Flash Size: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getFlashChipSize()).c_str());
+		String_ToShell("  Sketch Size: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getSketchSize()).c_str());
+		String_ToShell("  Free Sketch: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getFreeSketchSpace()).c_str());
+		String_ToShell("  Program Usage: ");
+		Number_ToShell((ESP.getSketchSize() * 100) / (ESP.getSketchSize() + ESP.getFreeSketchSpace()));
+		String_NewLine_ToShell("%");
+	}},
+
+	{"version", [](const C8* args) -> void {
+		String_NewLine_ToShell("Version Information:");
+		String_ToShell("  Firmware: ");
+		String_NewLine_ToShell(ESP.getSketchMD5().c_str());
+		String_ToShell("  Build Date: " __DATE__ " " __TIME__);
+		NewLine_ToShell(1);
+		String_ToShell("  SDK Version: ");
+		String_NewLine_ToShell(ESP.getSdkVersion());
+		String_ToShell("  Core Version: ");
+		String_NewLine_ToShell(ESP.getCoreVersion().c_str());
+		String_ToShell("  Boot Version: ");
+		Number_ToShell(ESP.getBootVersion());
+		NewLine_ToShell(1);
+		String_ToShell("  Boot Mode: ");
+		Number_ToShell(ESP.getBootMode());
+		NewLine_ToShell(1);
+	}},
+
+	{"reset",   [](const C8* args) -> void {
+		String_ToShell("Reset Reason: ");
+		String_NewLine_ToShell(ESP.getResetReason().c_str());
+		String_ToShell("Reset Info: ");
+		String_NewLine_ToShell(ESP.getResetInfo().c_str());
+	}},
+
+	{"scan",    [](const C8* args) -> void {
+		String_NewLine_ToShell("Scanning WiFi networks...");
+		S8 n = WiFi.scanNetworks();
+		
+		if (n == 0) {
+			String_NewLine_ToShell("No networks found");
+		} else {
+			String_ToShell("Found ");
+			Number_ToShell(n);
+			String_NewLine_ToShell(" networks:");
+			
+			for (S8 i = 0; i < n; ++i) {
+				String_ToShell("  ");
+				Number_ToShell(i + 1);
+				String_ToShell(": ");
+				String_ToShell(WiFi.SSID(i).c_str());
+				String_ToShell(" (");
+				Number_ToShell(WiFi.RSSI(i));
+				String_ToShell(" dBm) ");
+				String_NewLine_ToShell((WiFi.encryptionType(i) == ENC_TYPE_NONE) ? "[Open]" : "[Encrypted]");
+			}
+		}
+		WiFi.scanDelete();
+	}},
+
+	{"uptime",  [](const C8* args) -> void {
+		String_ToShell("Uptime: ");
+		String_NewLine_ToShell(getFormattedUptime(millis() / 1000).c_str());
+	}},
+
+	{"free",    [](const C8* args) -> void {
+		String_ToShell("Free Heap: ");
+		String_NewLine_ToShell(humanReadableBytes(ESP.getFreeHeap()).c_str());
 	}},
 };
 
