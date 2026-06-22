@@ -527,6 +527,30 @@ void setup()
 	Settings_Read();
 
 	// ---------------------------------------------------------------
+	// RTC Memory Initialization
+	// Try to restore boot time and last known time from RTC memory.
+	// If RTC memory is invalid (cold boot or corrupted), we'll initialize
+	// it later when we receive the first DateTime from PU.
+	// ---------------------------------------------------------------
+
+	if (rtcMemory.read()) {
+		// Successfully read RTC data - restore PU_DateTime from last known time
+		// Use the adjusted() method to account for elapsed time since last update
+		PU_DateTime = rtcMemory.lastKnown().adjusted();
+
+		#ifdef DebugTools
+		WriteToDebug("\nRTC memory read successfully\n");
+		WriteToDebug("Boot Time: "); WriteToDebug(rtcMemory.boot().toString()); WriteToDebug("\n");
+		WriteToDebug("Last Known: "); WriteToDebug(rtcMemory.lastKnown().toString()); WriteToDebug("\n");
+		#endif
+	} else {
+		#ifdef DebugTools
+		WriteToDebug("\nRTC memory read failed: "); WriteToDebug(rtcMemory.errorString()); WriteToDebug("\n");
+		WriteToDebug("Will initialize when DateTime is received from PU\n");
+		#endif
+	}
+
+	// ---------------------------------------------------------------
 
 	// stationConnectedHandler = WiFi.onSoftAPModeStationConnected(&onStationConnected);
 	// stationDisconnectedHandler = WiFi.onSoftAPModeStationDisconnected(&onStationDisconnected);
@@ -1294,6 +1318,44 @@ void setup()
 
 		request->send(200, "text/plain", ts.toString() + "\n" + "epoch: " + String(ts.toEpoch()) + "\n");
 	});
+
+	server->on("/rtc/info", HTTP_GET, [&](AsyncWebServerRequest *request) {
+		String response = "";
+
+		// Try to read RTC memory
+		if (rtcMemory.read()) {
+			response += "RTC Memory Status: OK\n\n";
+
+			// Boot time
+			response += "Boot Time: " + rtcMemory.boot().toString() + "\n";
+			response += "Boot Epoch: " + String(rtcMemory.boot().toEpoch()) + "\n\n";
+
+			// Last known time
+			response += "Last Known: " + rtcMemory.lastKnown().toString() + "\n";
+			response += "Last Known Epoch: " + String(rtcMemory.lastKnown().toEpoch()) + "\n";
+			response += "Last Known Millis: " + String(rtcMemory.lastKnown().millisStamp) + "\n\n";
+
+			// Current estimated time
+			struct tm now;
+			rtcMemory.getCurrentDateTime(now);
+			char buffer[32];
+			snprintf(buffer, sizeof(buffer), "%04d/%02d/%02d %02d:%02d:%02d",
+				now.tm_year + 1900, now.tm_mon + 1, now.tm_mday,
+				now.tm_hour, now.tm_min, now.tm_sec);
+			response += "Current (estimated): " + String(buffer) + "\n";
+			response += "Current Epoch: " + String(rtcMemory.getCurrentEpoch()) + "\n\n";
+
+			// Uptime
+			U32 uptime = rtcMemory.getUptimeSeconds();
+			response += "Uptime: " + String(uptime) + " seconds (" + getFormattedUptime(uptime) + ")\n";
+		} else {
+			response += "RTC Memory Status: " + String(rtcMemory.errorString()) + "\n";
+			response += "RTC memory not initialized or corrupted.\n";
+			response += "Will be initialized when DateTime is received from PU.\n";
+		}
+
+		request->send(200, "text/plain", response);
+	});
 	#endif
 
 	/*
@@ -1964,22 +2026,20 @@ U8   getStationStatus()
 
 void onDateTimeReceived()
 {
-	// https://github.com/esp8266/Arduino/blob/master/libraries/esp8266/examples/RTCUserMemory/RTCUserMemory.ino
-	// |<------system data (256 bytes)------->|<-----------------user data (512 bytes)--------------->|
-	// OTA takes the first 128 bytes of the USER area.
-	// if(!ESP.rtcUserMemoryRead(RTC_USER_DATA_ADDR, &data, sizeof(data))) {}
-	// if(!ESP.rtcUserMemoryWrite(RTC_USER_DATA_ADDR, &data, sizeof(data))) {}
-	// The offset is measured in blocks of 4 bytes and can range from 0 to 127 blocks (total size of RTC memory is 512 bytes).
-	// The data should be 4-byte aligned.
-	// Data stored in the first 32 blocks will be lost after performing an OTA update, because they are used by the Core internals.
-	// TODO: Implement RTC memory for storing device date/time
-
+	// Update the global PU_DateTime with the received time
 	PU_DateTime.set(year, month, day, hour, minute, second);
+
+	// Persist to RTC memory (initializes boot time on first call, updates lastKnown thereafter)
+	rtcMemory.initOrUpdate(PU_DateTime);
 }
 
 void onDateTimeSent()
 {
 	PU_DateTime.set(year, month, day, hour, minute, second);
+
+	// Persist to RTC memory (initializes boot time on first call, updates lastKnown thereafter)
+	rtcMemory.initOrUpdate(PU_DateTime);
+
 	eDateTimeReady = true;
 }
 
