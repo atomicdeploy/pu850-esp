@@ -79,6 +79,7 @@
 
 #include "LocalLib/AsyncWebServer.h"
 #include "LocalLib/AsyncOTA.h"
+#include "LocalLib/FirmwareTransfer.h"
 #include "LocalLib/Sessions.h"
 #include "LocalLib/Authentication.h"
 #include "LocalLib/SSDP.h"
@@ -103,6 +104,7 @@
 
 // #include "LocalLib/OTA.cpp"
 #include "LocalLib/AsyncOTA.cpp"
+#include "LocalLib/FirmwareTransfer.cpp"
 
 // #include "LocalLib/RemoteCommand.cpp"
 
@@ -1032,156 +1034,7 @@ void setup()
 		request->send(response);
 	});
 
-	// Firmware download endpoint
-	server->on("/firmware/download", HTTP_HEAD|HTTP_GET|HTTP_POST, [&](AsyncWebServerRequest *request) {
-		// ——————————————————————————————————————————————————————
-		// 1. Decide dump scope: full flash vs. sketch only
-		// ——————————————————————————————————————————————————————
-
-		// Determine whether to dump full flash or just sketch
-		bool dumpFull = request->hasArg("full") && request->arg("full") == "true";
-
-		uint32_t totalSize = dumpFull ? ESP.getFlashChipSize()	// entire flash
-					      : ESP.getSketchSize();	// only the running sketch
-
-		uint32_t startByte = 0, endByte = totalSize - 1;
-
-		// Choose filename
-		String filename = dumpFull ? "flash_dump.bin" : "firmware.bin";
-
-		// ——————————————————————————————————————————————————————
-		// 2. Parse `Range` header if preset (skip for HEAD) : bytes=startByte-endByte
-		// ——————————————————————————————————————————————————————
-
-		bool isRangeRequest = false;
-
-		// Check for HTTP Range header (e.g. bytes=100-200)
-		if (request->hasHeader(F("Range")) && request->method() != HTTP_HEAD) {
-			isRangeRequest = true;
-
-			String range = request->getHeader("Range")->value();
-			range.toLowerCase();
-
-			// Must be in the form "bytes=X-Y"
-			if (!range.startsWith("bytes=")) {
-				sendError(request, 416, "Unsupported range format");
-				return;
-			}
-
-			bool fromEnd = false;
-
-			range.remove(0, 6); // Remove 'bytes='
-
-			int dashPos = range.indexOf('-');
-			if (dashPos < 0) {
-				sendError(request, 416, "Invalid range syntax");
-				return;
-			}
-
-			if (dashPos != -1 && range.length() > 1) {
-				String strStart = range.substring(0, dashPos);
-				String strEnd   = range.substring(   dashPos + 1);
-
-				startByte = strStart.isEmpty() ?             0 : (uint32_t) strStart.toInt();
-				endByte   =   strEnd.isEmpty() ? totalSize - 1 : (uint32_t) strEnd.toInt();
-
-				fromEnd = strStart.isEmpty() && !strEnd.isEmpty();
-			}
-
-			// e.g. "Range: bytes=-N" → means last N bytes
-			if (fromEnd) {
-				startByte = totalSize - endByte;
-				endByte = totalSize - 1;
-			}
-
-			// Validate specified range
-			if (startByte > endByte || startByte >= totalSize) {
-				sendError(request, 416, "Invalid range specified");
-				return;
-			}
-		}
-
-		// Total number of bytes we will send
-		uint32_t contentLength = isRangeRequest ? (endByte - startByte + 1) : totalSize;
-
-		// ——————————————————————————————————————————————————————
-		// 3. Build the response (HEAD vs. GET/POST bodies)
-		// ——————————————————————————————————————————————————————
-
-		// Create response
-		AsyncWebServerResponse* response;
-
-		if (request->method() == HTTP_HEAD) {
-			// HEAD: Only send headers with no body
-			response = request->beginResponse(200, "application/octet-stream", "");
-			response->setContentLength(contentLength);
-		} else {
-			// GET/POST: stream flash contents as binary data via callback
-			response = request->beginResponse("application/octet-stream", contentLength,
-							// This lambda will be called repeatedly to fill outgoing TCP buffers
-							[startByte, totalSize](uint8_t* writeBuffer, size_t maxWriteLength, size_t offset) -> size_t {
-								uint32_t addr = startByte + offset;				// Address to read from
-								size_t remaining = totalSize - offset;				// Remaining bytes to read
-								size_t toRead = min(remaining, maxWriteLength);			// Bytes to read in this iteration
-
-								// Check if we are going to read past TAIL_SIZE from the end of the flash
-								if (addr >= ESP.getFlashChipSize() - TAIL_SIZE) {
-									size_t chunk = min(toRead, (size_t)TAIL_SIZE);
-									return readFlashTail(writeBuffer, chunk);		// Read from flash tail into the provided buffer
-								}
-
-								return ESP.flashRead(addr, writeBuffer, toRead) ? toRead : 0;	// Read from flash memory into the provided buffer, return number of bytes read
-							});
-		}
-
-		// If partial content was requested, add appropriate range headers
-		if (isRangeRequest && request->method() != HTTP_HEAD) {
-			response->setCode(206); // Partial Content
-			response->addHeader("Content-Range", "bytes " + String(startByte) + "-" + String(endByte) + "/" + String(totalSize));
-		}
-
-		// ——————————————————————————————————————————————————————
-		// 4. Set headers that are common to all request types
-		// ——————————————————————————————————————————————————————
-
-		// Add common response headers
-		response->addHeader("Accept-Ranges", "bytes");
-		response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
-
-		// Add headers specific to sketch-only dump
-		if (!dumpFull && !isRangeRequest) {
-			char buffer[40], md5[16];
-
-			if (parseHexString(ESP.getSketchMD5(), md5))
-			{
-				base64_encodestate _state;
-				base64_init_encodestate(&_state);
-				int len = base64_encode_block((const char *)md5, sizeof(md5), buffer, &_state);
-				    len = base64_encode_blockend((buffer + len), &_state);
-				response->addHeader("Content-MD5", String(buffer));
-			}
-
-			char mon[4];
-			int d, y, hh, mm, ss;
-			bool valid = sscanf(__DATE__, "%3s %d %d", mon, &d, &y)		// "Mmm dd yyyy"
-				  && sscanf(__TIME__, "%d:%d:%d", &hh, &mm, &ss);	// "hh:mm:ss"
-
-			int m = monthStringToInt(mon);
-
-			if (valid && is_between(m, 0, 11))
-			{
-				int wday = dayOfWeek(y, m+1, d);
-
-				snprintf(buffer, sizeof(buffer), "%s, %02d %s %04d %02d:%02d:%02d GMT", dayNames[wday], d, monthNames[m], y, hh, mm, ss);
-				response->addHeader("Last-Modified", buffer);
-			}
-		}
-
-		// ——————————————————————————————————————————————————————
-		// 5. Send the response
-		// ——————————————————————————————————————————————————————
-		request->send(response);
-	});
+	RegisterFirmwareTransferRoutes(server);
 
 	#ifdef DebugTools
 	server->on("/debug/info", HTTP_GET, [&](AsyncWebServerRequest *request) {
@@ -1346,7 +1199,12 @@ void setup()
 		wifi_country_t country;
 		memset(country.cc, Null_, sizeof(country.cc));
 		wifi_get_country(&country); country.cc[2] = Null_;
-		request->send(200, "text/plain", "country: " + isprint(country.cc[0]) ? String(country.cc) : String("(unknown)") + "\n");
+		request->send(
+			200,
+			"text/plain",
+			"country: " +
+				(isprint(country.cc[0]) ? String(country.cc) : String("(unknown)")) +
+				"\n");
 	});
 
 	server->on("/wifi/status", HTTP_GET, [&](AsyncWebServerRequest *request) {
@@ -1373,7 +1231,11 @@ void setup()
 
 		request->send(200, "text/plain",
 			"ssid: " + String((C8*)config.ssid) + "\n"
+#if FW_EXPOSE_WIFI_CREDENTIALS
 			"pass: " + String((C8*)config.password) + "\n"
+#else
+			"pass: (redacted)\n"
+#endif
 			"ip: " + IPAddress(ip.ip.addr).toString() + "\n"
 			"netmask: " + IPAddress(ip.netmask.addr).toString() + "\n"
 		);
@@ -1399,7 +1261,11 @@ void setup()
 
 		request->send(200, "text/plain",
 			"ssid: " + String((C8*)config.ssid) + "\n"
+#if FW_EXPOSE_WIFI_CREDENTIALS
 			"pass: " + String((C8*)config.password) + "\n"
+#else
+			"pass: (redacted)\n"
+#endif
 			"dhcp: " + String(wifi_station_dhcpc_status() == DHCP_STARTED ? "enabled" : "disabled") + "\n"
 			"ip: " + IPAddress(ip.ip.addr).toString() + "\n"
 			"netmask: " + IPAddress(ip.netmask.addr).toString() + "\n"
@@ -1625,16 +1491,30 @@ void setup()
 	});
 
 	server->on("/update/info", HTTP_GET, [&](AsyncWebServerRequest *request) {
-		request->send(200, "application/json",
-			"{\"hash\": \"" + String(ESP.getSketchMD5()) + "\",\n"
-			"\"size\": " + String(ESP.getSketchSize()) + ",\n"
-			"\"free\": " + String(ESP.getFreeSketchSpace()) + ",\n"
-			"\"date\": \"" + __DATE__ " " __TIME__ + "\"}"
-		);
+		if (!FirmwareTransferAuthorize(request)) return;
+
+		String response;
+		response.reserve(256);
+		response += "{\"product\":\"" FW_PRODUCT_ID "\",";
+		response += "\"name\":\"" FW_PRODUCT_NAME "\",";
+		response += "\"model\":\"" FW_PRODUCT_MODEL_NAME "\",";
+		response += "\"hash\":\"" + String(ESP.getSketchMD5()) + "\",";
+		response += "\"size\":" + String(ESP.getSketchSize()) + ",";
+		response += "\"free\":" + String(ESP.getFreeSketchSpace()) + ",";
+#if FW_ENABLE_FIRMWARE_DOWNLOAD
+		response += "\"download\":\"/firmware/download\",";
+#else
+		response += "\"download\":null,";
+#endif
+		response += "\"date\":\"" __DATE__ " " __TIME__ "\"}";
+		request->send(200, "application/json", response);
 	});
 
 	server->on("/info", HTTP_GET, [&](AsyncWebServerRequest *request) {
 		request->send(200, "text/plain",
+			"product: " FW_PRODUCT_ID "\n"
+			"product name: " FW_PRODUCT_NAME "\n"
+			"model: " FW_PRODUCT_MODEL_NAME "\n"
 			"hostname: " + String(WiFi.hostname()) + "\n"
 			"wifi version: " + String(ESP.getFullVersion()) + "/WebServer:" ASYNCWEBSERVER_VERSION + "\n"
 			"esp chip id: " + String(ESP.getChipId(), HEX) + "\n"
@@ -1678,7 +1558,7 @@ void setup()
 	cors.setMaxAge(600);
 
 	DefaultHeaders::Instance().addHeader("Cache-Control", "no-cache");
-	DefaultHeaders::Instance().addHeader("Server", "PU850");
+	DefaultHeaders::Instance().addHeader("Server", FW_HTTP_SERVER_NAME);
 
 	server->addHandler(&loginHandler);
 	server->addMiddlewares({&authMiddleware, &authzMiddleware});
@@ -1694,11 +1574,7 @@ void setup()
 	Telnet_Setup();
 
 	#ifdef ShellOnSerial
-	Shell_clearScreen();
-	Serial.print(ansi.setFG(ANSI_BRIGHT_GREEN));
-	Serial.print("\nWelcome to " + WiFi.hostname() + "!\n");
-	Serial.print(ansi.reset());
-	newPrompt(0);
+	SerialShell_Begin();
 	initStatus = true;
 	return;
 	#endif
@@ -2189,7 +2065,7 @@ void onWsReceivedCommand(AsyncWebSocketClient *client, const C8* data)
 		// PushToStrEndPoint(ESP_Suffix_MessageStr, ",v,n lhadk");
 		// onMessageReceived(0xff, 0, 0, ID_InformationIcon_);
 
-		client->text("server:PU850_OK");
+		client->text("server:" FW_WEBSOCKET_SERVER_ID "_OK");
 	}
 }
 
@@ -2497,7 +2373,7 @@ void loop()
 	// if (udpRunning) UdpService();
 
 	#ifdef ShellOnSerial
-	while (Serial.available() > 0) ShellService(Serial.read());
+	SerialShell_Service();
 	#endif
 
 	/*

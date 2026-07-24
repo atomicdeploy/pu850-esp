@@ -1,5 +1,6 @@
 #include "AsyncOTA.h"
 #include "AsyncWebServer.h"
+#include "FirmwareTransfer.h"
 
 AsyncOtaClass AsyncOTA;
 
@@ -19,6 +20,13 @@ void AsyncOtaClass::begin(AsyncWebServer *server) {
 
 	// on POST request
 	[&](AsyncWebServerRequest *request) {
+		if (!FirmwareTransferHasAuthorization(request)) {
+			if (String(request->getAttribute("ota_auth_rejected", "0")) != "1") {
+				FirmwareTransferAuthorize(request);
+			}
+			return;
+		}
+
 		// the request handler is triggered after the upload handler below has finished, send the final response
 		AsyncWebServerResponse *response = request->beginResponse(Update.hasError()?500:200, "text/plain", Update.hasError()?Update.getErrorString():"ok!");
 		// response->addHeader("Connection", "close");
@@ -28,6 +36,14 @@ void AsyncOtaClass::begin(AsyncWebServer *server) {
 
 	// on file upload
 	[&](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+		if (!FirmwareTransferHasAuthorization(request)) {
+			if (!index) {
+				request->setAttribute("ota_auth_rejected", "1");
+				FirmwareTransferAuthorize(request);
+			}
+			return;
+		}
+
 		// Upload handler chunks in data
 
 		// Start of the request

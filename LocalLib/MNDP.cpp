@@ -59,7 +59,7 @@ void sendMNDP() {
 	offset += addTlv(buffer + offset, TLV_TYPE_VERSION, strlen(version), version);
 
 	// Add Platform TLV
-	const char *platform = "Pand Caspian";
+	const char *platform = FW_MNDP_PLATFORM;
 	offset += addTlv(buffer + offset, TLV_TYPE_PLATFORM, strlen(platform), platform);
 
 	// Add Uptime TLV
@@ -73,7 +73,7 @@ void sendMNDP() {
 	offset += addTlv(buffer + offset, TLV_TYPE_SOFTWARE_ID, strlen(software_id), software_id);
 
 	// Add Board TLV
-	const char *board = "PU850";
+	const char *board = FW_MNDP_BOARD;
 	offset += addTlv(buffer + offset, TLV_TYPE_BOARD, strlen(board), board);
 
 	// Add Unpack TLV

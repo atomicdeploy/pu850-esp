@@ -4,30 +4,16 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 
-#include <functional>
+#include "../ProductConfig.h"
 
-extern "C" {
-	#include "osapi.h"
-	#include "ets_sys.h"
-	#include "user_interface.h"
-	#include "wl_definitions.h"
-	#include "mem.h"
-}
-
-#include "lwip/opt.h"
-#include "lwip/udp.h"
-#include "lwip/inet.h"
 #include "lwip/igmp.h"
-#include "lwip/mem.h"
 
-#define SSDP_INTERVAL_SECONDS      1200
+#define SSDP_INTERVAL_SECONDS      FW_UPNP_CACHE_MAX_AGE_SECONDS
 #define SSDP_PORT                  1900
 #define SSDP_HTTP_PORT             80
-#define SSDP_METHOD_SIZE           10
-#define SSDP_URI_SIZE              2
 #define SSDP_BUFFER_SIZE           64
-#define SSDP_MULTICAST_TTL         2
-#define SSDP_QUEUE_SIZE            21
+#define SSDP_MULTICAST_TTL         FW_UPNP_MULTICAST_TTL
+#define SSDP_QUEUE_SIZE            32
 
 static const IPAddress SSDP_MULTICAST_ADDR(239, 255, 255, 250);
 
@@ -60,74 +46,39 @@ static const char* PROGMEM SSDP_NOTIFY_UPDATE_TEMPLATE =
 static const char* PROGMEM SSDP_PACKET_TEMPLATE =
 	"%s" // SSDP_RESPONSE_TEMPLATE / SSDP_NOTIFY_TEMPLATE
 	"CACHE-CONTROL: max-age=%u\r\n" // SSDP_INTERVAL_SECONDS
-	"SERVER: UPNP/1.1 %s/%s\r\n" // m_modelName, m_modelNumber
+	"LOCATION: http://%s:%u/%s\r\n" // active interface IP, m_port, m_schemaURL
+	"SERVER: ESP8266/1.0 UPnP/1.1 " FW_UPNP_SERVER_PRODUCT "/%s\r\n"
 	"USN: %s%s%s\r\n" // m_uuid
 	"%s: %s\r\n"  // "NT" or "ST", m_deviceType
-	"LOCATION: http://%s:%u/%s\r\n" // WiFi.localIP(), m_port, m_schemaURL
+	"BOOTID.UPNP.ORG: %u\r\n"
+	"CONFIGID.UPNP.ORG: %u\r\n"
+	"%s" // NEXTBOOTID.UPNP.ORG for ssdp:update
 	"\r\n";
 
-static const char* PROGMEM SSDP_SCHEMA_TEMPLATE =
-	"HTTP/1.1 200 OK\r\n"
-	"Content-Type: text/xml\r\n"
-	"Connection: close\r\n"
-	"Access-Control-Allow-Origin: *\r\n"
-	"\r\n"
-	"<?xml version=\"1.0\"?>"
-	"<root xmlns=\"urn:schemas-upnp-org:device-1-0\">"
-		"<specVersion>"
-			"<major>1</major>"
-			"<minor>0</minor>"
-		"</specVersion>"
-		"<URLBase>http://%s:%u/</URLBase>" // WiFi.localIP(), m_port
-		"<device>"
-			"<deviceType>%s</deviceType>"
-			"<friendlyName>%s</friendlyName>"
-			"<presentationURL>%s</presentationURL>"
-			"<serialNumber>%s</serialNumber>"
-			"<modelName>%s</modelName>"
-			"<modelNumber>%s</modelNumber>"
-			"<modelURL>%s</modelURL>"
-			"<manufacturer>%s</manufacturer>"
-			"<manufacturerURL>%s</manufacturerURL>"
-			"<UDN>uuid:%s</UDN>"
-		"</device>"
-		// "<iconList>"
-		// 	"<icon>"
-		// 		"<mimetype>image/png</mimetype>"
-		// 		"<height>48</height>"
-		// 		"<width>48</width>"
-		// 		"<depth>24</depth>"
-		// 		"<url>icon48.png</url>"
-		// 	"</icon>"
-		// 	"<icon>"
-		// 		"<mimetype>image/png</mimetype>"
-		// 		"<height>120</height>"
-		// 		"<width>120</width>"
-		// 		"<depth>24</depth>"
-		// 		"<url>icon120.png</url>"
-		// 	"</icon>"
-		// "</iconList>"
-	"</root>\r\n"
+static const char* PROGMEM SSDP_NOTIFY_BYEBYE_PACKET_TEMPLATE =
+	"NOTIFY * HTTP/1.1\r\n"
+	"HOST: 239.255.255.250:1900\r\n"
+	"NT: %s\r\n"
+	"NTS: ssdp:byebye\r\n"
+	"USN: %s%s%s\r\n"
+	"BOOTID.UPNP.ORG: %u\r\n"
+	"CONFIGID.UPNP.ORG: %u\r\n"
 	"\r\n";
 
-typedef enum {
-	NONE,
-	SEARCH,
-	NOTIFY
-} ssdp_method_t;
-
-typedef enum {
+enum ssdp_message_t : uint8_t {
 	NOTIFY_ALIVE_INIT,
 	NOTIFY_ALIVE,
 	NOTIFY_UPDATE,
+	NOTIFY_BYEBYE,
 	RESPONSE
-} ssdp_message_t;
+};
 
-typedef enum {
+enum ssdp_udn_t : uint8_t {
 	ROOT_FOR_ALL,
 	ROOT_BY_UUID,
-	ROOT_BY_TYPE
-} ssdp_udn_t;
+	ROOT_BY_TYPE,
+	SERVICE_BY_TYPE
+};
 
 typedef struct {
 	unsigned long time;
@@ -135,10 +86,11 @@ typedef struct {
 	ssdp_message_t type;
 	ssdp_udn_t udn;
 	IPAddress address;
+	IPAddress interfaceAddress;
 	uint16_t port;
+	uint32_t bootId;
+	uint32_t nextBootId;
 } ssdp_send_parameters_t;
-
-struct SSDPTimer;
 
 class SSDPDeviceClass {
 public:
@@ -147,7 +99,7 @@ public:
 	bool begin();
 	void end();
 
-	void schema(WiFiClient client) const { schema((Print&)std::ref(client)); }
+	void schema(WiFiClient &client) const { schema(static_cast<Print &>(client)); }
 	void schema(Print &print) const;
 
 	void update();
@@ -182,21 +134,32 @@ public:
 	void setTTL(uint8_t ttl);
 	void setInterval(uint32_t interval);
 
-private:
-	void _startTimer();
-	void _stopTimer();
-	static void _onTimerStatic(SSDPDeviceClass* self);
+	const char *uuid() const { return m_uuid; }
+	IPAddress activeInterfaceIP() const;
 
+private:
 	bool readLine(String &value);
 	bool readKeyValue(String &key, String &value);
 
-	void postNotifyALive();
-	void postNotifyUpdate();
+	void postNotifyALive(IPAddress interfaceAddress);
+	void postNotifyUpdate(IPAddress interfaceAddress);
 	void postResponse(long mx);
 	void postResponse(ssdp_udn_t udn, long mx);
-	void post(ssdp_message_t type, ssdp_udn_t udn, IPAddress address, uint16_t port, unsigned long time);
+	void post(
+		ssdp_message_t type,
+		ssdp_udn_t udn,
+		IPAddress address,
+		IPAddress interfaceAddress,
+		uint16_t port,
+		unsigned long time
+	);
+	void clearQueue();
+	void leaveJoinedInterfaces();
+	void sendAllByebye(IPAddress interfaceAddress);
+	void sendNotifyByebye(ssdp_udn_t udn, IPAddress interfaceAddress);
+	bool serviceEnabled() const;
+	IPAddress interfaceForRemote(IPAddress remote) const;
 
-	void send(ssdp_method_t method);
 	void send(ssdp_send_parameters_t *parameters);
 
 protected:
@@ -205,19 +168,13 @@ protected:
 	uint8_t m_ttl = SSDP_MULTICAST_TTL;
 
 	IPAddress m_last;
-
-	SSDPTimer* _timer = nullptr;
+	IPAddress m_stationJoined;
+	IPAddress m_accessPointJoined;
+	uint32_t m_joinRetryAt = 0;
+	uint32_t m_bootId = 1;
+	uint32_t m_configId = 1;
 
 	uint32_t m_interval = SSDP_INTERVAL_SECONDS;
-
-	IPAddress _respondToAddr;
-	uint16_t  _respondToPort = 0;
-
-	bool _pending = false;
-	bool _st_is_uuid = false;
-	unsigned short _delay = 0;
-	unsigned long _process_time = 0;
-	unsigned long _notify_time = 0;
 
 	char m_schemaURL[SSDP_SCHEMA_URL_SIZE];
 	char m_uuid[SSDP_UUID_SIZE];

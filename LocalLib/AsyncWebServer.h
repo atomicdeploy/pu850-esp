@@ -21,4 +21,4 @@ const int MAX_WS_CLIENTS = 10;
 AsyncWebServer *server;
 AsyncWebSocket ws("/ws");
 
-const char index_content[] PROGMEM = R"rawliteral(Pand Caspian PU850)rawliteral" "\n";
+const char index_content[] PROGMEM = FW_PRODUCT_INDEX_TEXT;
