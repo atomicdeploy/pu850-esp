@@ -32,6 +32,7 @@ const (
 	defaultTimeout  = 45 * time.Second
 	defaultReboot   = 75 * time.Second
 	defaultInterval = 2 * time.Second
+	lookupTimeout   = 20 * time.Second
 	maxResponseSize = 1 << 20
 	maxFirmwareSize = 16 << 20
 	exitSuccess     = 0
@@ -523,7 +524,10 @@ func resolveHTTPURL(
 	originalHost := parsed.Hostname()
 	resolvedIP := originalHost
 	if net.ParseIP(originalHost) == nil {
-		lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		// A cold Windows mDNS lookup can legitimately take more than five
+		// seconds, especially through a VPN adapter. Resolve once with a
+		// realistic bound, then keep using the pinned address.
+		lookupCtx, cancel := context.WithTimeout(ctx, lookupTimeout)
 		defer cancel()
 		addresses, lookupErr := net.DefaultResolver.LookupIPAddr(
 			lookupCtx,

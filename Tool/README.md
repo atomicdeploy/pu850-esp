@@ -42,6 +42,11 @@ The tools pin a resolved `.local` address for a transfer and allow one fresh
 resolution only after a safe connection failure. They do not blindly replay an
 ambiguous upload.
 
+The native clients allow 20 seconds by default for a cold DNS-SD/mDNS lookup.
+This avoids false failures on Windows systems where `.local` resolution crosses
+a VPN or a newly initialized network adapter; the resolved address is still
+looked up only once and then pinned.
+
 ## Validate every implementation
 
 On Windows with Node.js, Go, .NET 8, Python 3, CMake, and a Visual Studio

@@ -79,6 +79,10 @@ A cached address may be resolved one additional time after a safe, pre-body
 network failure. A request is never automatically replayed after firmware bytes
 may have been committed. Redirects are rejected.
 
+The default DNS/connect deadline is 20 seconds to accommodate cold Windows
+mDNS resolution through VPN and newly initialized adapters. Override it with
+`--connect-timeout-ms` when needed.
+
 ## Download and backup
 
 ```powershell
