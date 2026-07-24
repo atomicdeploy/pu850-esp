@@ -1,16 +1,17 @@
 {
+  "name": "asa-firmware-transfer-tool",
+  "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
-    "test": "node upload.test.js"
+    "lint": "node --check upload.js && node --check upload.test.js",
+    "test": "node --test upload.test.js",
+    "check": "npm run lint && npm test"
   },
   "dependencies": {
     "chalk": "^5.6.2",
-    "chokidar": "^5.0.0",
-    "form-data": "^4.0.5",
-    "got": "^14.6.6",
-    "node-notifier": "^10.0.1"
-  },
-  "devDependencies": {
-    "eslint": "^10.1.0"
+    "chokidar": "^5.0.0"
   }
 }

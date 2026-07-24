@@ -1,510 +1,1113 @@
-import got from 'got'
-import dns from 'dns/promises'
-import { watch } from 'chokidar'
-import { existsSync, statSync, readFileSync, realpathSync } from 'fs'
-import { basename } from 'path'
-import FormData from 'form-data'
-import { createHash } from 'crypto'
+#!/usr/bin/env node
+
+import { createHash, randomBytes } from 'node:crypto'
+import dns from 'node:dns/promises'
+import { promises as fs } from 'node:fs'
+import http from 'node:http'
+import https from 'node:https'
+import { isIP } from 'node:net'
+import { basename, dirname, resolve } from 'node:path'
+import process from 'node:process'
+import { gunzipSync } from 'node:zlib'
+import { fileURLToPath } from 'node:url'
 import chalk from 'chalk'
-import notifier from 'node-notifier'
+import { watch } from 'chokidar'
 
-// Check for --immediate mode (upload right away without watching for changes)
-const immediateMode = process.argv.includes('--immediate') || process.argv.includes('-i')
+export const EXIT = Object.freeze({
+	OK: 0,
+	USAGE: 2,
+	LOCAL_INPUT: 3,
+	NETWORK: 4,
+	PROTOCOL: 5,
+	INTEGRITY: 6,
+	UPLOAD_REJECTED: 7,
+	POST_VERIFY: 8,
+	LOCAL_IO: 9,
+	INTERRUPTED: 130
+})
 
-if (process.argv.includes('--help')) {
-	console.log(`${chalk.green.bold`Usage:`} ${basename(process.argv[0]).replace(/\.exe$/gi, '')} ${basename(process.argv[1])} ${chalk.yellow('[options]')} ${chalk.yellow('filename.bin')}\n`)
-	console.log(`${chalk.yellow`Options:`}`)
-	console.log(`  ${chalk.cyan`--immediate, -i`}  Upload the file immediately without watching for changes`)
-	console.log(`  ${chalk.cyan`--help`}           Show this help message\n`)
-	console.log(`${chalk.yellow`You must also set the environment variable \`UPDATE_API\` to the URL of the update API.`}`)
-	console.log(`${chalk.magenta`Example:`} set UPDATE_API=http://PU850.local:80/update`)
-	console.log(`${chalk.magenta`Example:`} UPDATE_API=http://192.168.1.100/update node upload.js --immediate firmware.bin`)
-	process.exit(0)
-}
+const DEFAULTS = Object.freeze({
+	requestTimeoutMs: 10_000,
+	verifyTimeoutMs: 30_000,
+	verifyIntervalMs: 750,
+	maxFirmwareBytes: 16 * 1024 * 1024,
+	maxDownloadBytes: 16 * 1024 * 1024
+})
 
-const headers = {
-	'User-Agent': 'ASA-Update-Tool/1.0.0'
-}
+const USER_AGENT = 'ASA-Firmware-Transfer/2.0'
+const NETWORK_ERROR_CODES = new Set([
+	'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'EPIPE',
+	'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH', 'EADDRNOTAVAIL'
+])
 
-let UPDATE_API = process.env.UPDATE_API
-
-if (!UPDATE_API) {
-	console.error('Please provide the `UPDATE_API` environment variable')
-	process.exit(1)
-}
-
-try {
-	// Validate the URL
-	const url = new URL(UPDATE_API)
-
-	// Check if the host of the URL is does not have a gTLD, or if it is an mDNS (.local) address
-	if (url.hostname.match(/^[a-z0-9-]+(\.local)?$/i)) {
-		console.info(chalk.yellow`Resolving hostname:`, url.hostname)
-		const result = await dns.lookup(url.hostname)
-		url.hostname = result.address
-		UPDATE_API = url.toString()
-		console.info(chalk.green`Hostname successfully resolved:`, result.address)
-		// notifier.notify({ title: 'ℹ️ Using resolved address', message: UPDATE_API, sound: false, icon: 'None' })
-	}
-} catch (error) {
-	console.error('The provided `UPDATE_API` is not a valid URL')
-	console.error(error?.message ? chalk.red.bold(error.message) : error)
-	process.exit(1)
-}
-
-// Get file path from arguments (find first non-option argument, or argument after --)
-let filePath = null
-let foundSeparator = false
-for (const arg of process.argv.slice(2)) {
-	if (arg === '--') {
-		foundSeparator = true
-		continue
-	}
-	if (foundSeparator || !arg.startsWith('-')) {
-		filePath = arg
-		break
+class TransferError extends Error {
+	constructor(message, exitCode, options = {}) {
+		super(message, options)
+		this.name = 'TransferError'
+		this.exitCode = exitCode
 	}
 }
 
-if (!filePath) {
-	console.error('Please provide a file path as an argument')
-	process.exit(1)
-}
+class EndpointResolver {
+	constructor(updateUrl, logger) {
+		this.updateUrl = updateUrl
+		this.originalHostname = updateUrl.hostname
+		this.address = null
+		this.family = 0
+		this.refreshUsed = false
+		this.logger = logger
+	}
 
-if (!existsSync(filePath)) {
-	console.error('The specified file does not exist')
-	process.exit(1)
-}
-
-const resolvedPath = realpathSync(filePath, { encoding: "utf8" })
-
-/**
- * Upload firmware file - the main upload logic
- * @param {string} filePath - Path to the firmware file
- * @param {Object} options - Upload options
- * @param {boolean} options.immediate - If true, skip waiting for .md5 file and don't retry on build-in-progress
- * @param {boolean} options.skipInfoCheck - If true, skip the post-upload info verification
- * @returns {Promise<{success: boolean, error?: string}>}
- */
-async function uploadFirmware(filePath, options = {}) {
-	const { immediate = false, skipInfoCheck = false } = options
-	const fileName = basename(filePath)
-
-	// Check if build is still in progress
-	if (existsSync(`${filePath}/../~local.h`) || existsSync(`${filePath}.gz`)) {
-		if (immediate) {
-			return { success: false, error: 'File is still being built' }
+	async initialize() {
+		if (isIP(this.originalHostname)) {
+			this.address = this.originalHostname
+			this.family = isIP(this.originalHostname)
+			return
 		}
-		process.stdout.write(`\r\x1b[K${chalk.gray('File is still being built...')}\r`);
-		return new Promise(resolve => setTimeout(() => resolve(uploadFirmware(filePath, options)), 1000))
+		await this.#resolve(false)
 	}
 
-	// In immediate mode, we don't require .md5 file but will use it if available
-	// In watch mode, we wait for .md5 file
-	if (!immediate && !existsSync(`${filePath}.md5`)) {
-		process.stdout.write(`\r\x1b[K${chalk.gray('Waiting for the MD5 file...')}\r`);
-		return new Promise(resolve => setTimeout(() => resolve(uploadFirmware(filePath, options)), 1000))
+	async refreshOnce() {
+		if (this.refreshUsed || isIP(this.originalHostname)) return false
+		this.refreshUsed = true
+		await this.#resolve(true)
+		return true
 	}
 
-	// Read and parse the contents of the `.md5` file if it exists
-	const md5List = {}
-	if (existsSync(`${filePath}.md5`)) {
-		const md5File = readFileSync(`${filePath}.md5`, { encoding: 'utf8' }).trim()
-		const md5Lines = md5File.split(/[\r\n]+/g).map(line => line.trim())
-
-		if (!md5File || md5Lines.length < 1) {
-			if (!immediate) {
-				console.error(chalk.red.bold('MD5 file is empty.'))
-				return { success: false, error: 'MD5 file is empty' }
-			}
-		} else {
-			let skip = false
-
-			md5Lines.forEach(line => {
-				line = line.replace(/\s+/g, ' ')
-
-				const index = line.indexOf(' ')
-
-				let [md5, name] = [line.substring(0, index).trim(), line.substring(index + 1).trim()]
-
-				name = basename(name.replace(/^\*/, '')) // + tag
-				md5 = md5.replace(/[\\]/gi, '')
-
-				if (md5List[name] && md5List[name] !== md5) {
-					console.error(md5List[name], md5)
-					throw new Error(`Multiple MD5 values found for "${name}"`)
-				}
-
-				md5List[name] = md5
-
-				if (process.ongoingRequest && !immediate) {
-					skip = true
-
-					// Check if there is a new file available
-					if (md5 !== process.lastUploadedMD5 && name.includes(' (compressed)')) {
-						process.stdout.write(`\r\x1b[K${chalk.gray('An ongoing request is in progress...')}\r`);
-						clearTimeout(process.ongoingTimerId)
-						process.ongoingTimerId = setTimeout(() => uploadFirmware(filePath, options), 1000)
-					}
-				}
-			})
-
-			if (skip) return { success: false, error: 'Request in progress' }
+	async #resolve(refresh) {
+		try {
+			const result = await dns.lookup(this.originalHostname)
+			this.address = result.address
+			this.family = result.family
+			this.logger.detail(`${refresh ? 'Re-resolved' : 'Resolved'} ${this.originalHostname} to ${result.address}`)
+		} catch (error) {
+			throw new TransferError(
+				`Unable to resolve ${this.originalHostname}: ${sanitizeDeviceText(error.message)}`,
+				EXIT.NETWORK,
+				{ cause: error }
+			)
 		}
 	}
 
-	if (!immediate) {
-		process.stdout.write('\x1b[H\x1b[2J') // clear screen
-		console.info(`File "${chalk.yellow.bold(fileName)}" has been modified.`)
-	}
-
-	try {
-		const stats = statSync(filePath)
-
-		console.info('Size:', stats.size, 'bytes')
-		console.info('Time:', stats.mtime) // Last modified time
-
-		const fileData = readFileSync(filePath)
-
-		const hash = createHash('md5')
-		hash.update(fileData)
-
-		const md5 = hash.digest('hex')
-
-		console.info('MD5 Hash:', chalk.cyan(md5))
-
-		// Verify against .md5 file if available
-		if (md5List[fileName + ' (compressed)'] && md5 !== md5List[fileName + ' (compressed)']) {
-			console.error(chalk.red.bold('MD5 mismatch!'))
-			console.error('Expected:', md5List[fileName + ' (compressed)'] || 'Unknown')
-			console.error('Calculated:', md5)
-			return { success: false, error: 'MD5 mismatch' }
+	requestOptions(url, headers = {}) {
+		if (url.hostname !== this.originalHostname) {
+			throw new TransferError('All firmware endpoints must use the configured device host', EXIT.USAGE)
 		}
 
-		const formData = new FormData()
-		formData.append('MD5', md5)
-		formData.append('firmware', fileData)
-
-		process.stdout.write('Uploading file...')
-		if (!immediate) {
-			process.title = `Uploading firmware`
-			process.stdout.write(`\x1b]9;4;3;0\x07`) // Set progress to indeterminate state
-		}
-
-		process.ongoingRequest = true
-		process.lastUploadedMD5 = md5
-		process.forceExit = false
-
-		const response = await got.post(UPDATE_API, {
-			body: formData,
+		return {
+			protocol: url.protocol,
+			hostname: this.address,
+			family: this.family || undefined,
+			port: url.port || undefined,
+			method: 'GET',
+			path: `${url.pathname}${url.search}`,
+			servername: this.originalHostname,
 			headers: {
-				...formData.getHeaders(),
-				...headers,
+				Host: url.host,
+				...headers
+			},
+			agent: false
+		}
+	}
+}
+
+function createLogger({ quiet = false } = {}) {
+	return {
+		info(message) {
+			if (!quiet) console.log(message)
+		},
+		detail(message) {
+			if (!quiet) console.log(chalk.gray(message))
+		},
+		success(message) {
+			if (!quiet) console.log(chalk.green(message))
+		},
+		warn(message) {
+			if (!quiet) console.warn(chalk.yellow(message))
+		},
+		error(message) {
+			console.error(chalk.red(message))
+		}
+	}
+}
+
+function usage() {
+	return `${chalk.green.bold('ASA firmware transfer tool')}
+
+Usage:
+  node upload.js [options] firmware.bin        Watch firmware (default)
+  node upload.js --immediate [options] firmware.bin
+  node upload.js --check [options] firmware.bin
+  node upload.js --download PATH [options]
+
+Transfer options:
+  -i, --immediate          Upload once instead of watching
+      --watch              Explicitly select watch mode
+      --check              Validate gzip and strict two-record manifest offline
+      --force              Upload even when the device already has this raw hash
+      --no-verify          Explicitly disable mandatory post-reboot hash verification
+      --backup PATH        Atomically download and verify current firmware before upload
+      --download PATH      Atomically download and verify firmware, without uploading
+      --no-resume          Ignore an existing PATH.part download
+      --manifest PATH      Manifest path (default: firmware.bin.md5)
+
+Connection options:
+      --url URL            Update endpoint (default: UPDATE_API)
+      --authorization VAL  Complete Authorization value (or UPDATE_AUTHORIZATION)
+      --bearer TOKEN       Bearer token (or UPDATE_BEARER_TOKEN / UPDATE_TOKEN)
+      --timeout MS         Per-request timeout (default: ${DEFAULTS.requestTimeoutMs})
+      --verify-timeout MS  Reboot/hash deadline (default: ${DEFAULTS.verifyTimeoutMs})
+      --verify-interval MS Poll interval (default: ${DEFAULTS.verifyIntervalMs})
+      --max-download-size N  Download safety limit in bytes
+      --max-firmware-size N  Local compressed/raw safety limit in bytes
+      --quiet              Suppress informational output
+  -h, --help               Show this help
+
+The update URL must include /update, for example:
+  UPDATE_API=http://device.local/update node upload.js --immediate Build/ASA0002E.ino.bin
+
+Exit codes: 0 success/no-op, 2 usage, 3 local input/manifest, 4 network,
+5 device protocol, 6 integrity, 7 upload rejected, 8 post-verify, 9 local I/O,
+130 interrupted.`
+}
+
+function optionValue(argv, index, inlineValue, option) {
+	if (inlineValue !== undefined) return [inlineValue, index]
+	if (index + 1 >= argv.length) {
+		throw new TransferError(`${option} requires a value`, EXIT.USAGE)
+	}
+	return [argv[index + 1], index + 1]
+}
+
+export function parseArguments(argv, env = process.env) {
+	const config = {
+		mode: null,
+		firmwarePath: null,
+		manifestPath: null,
+		updateUrlText: env.UPDATE_API || '',
+		authorization: null,
+		backupPath: null,
+		downloadPath: null,
+		force: false,
+		verify: true,
+		resume: true,
+		quiet: false,
+		help: false,
+		...DEFAULTS
+	}
+
+	let explicitAuthorization = null
+	let bearerToken = null
+	const positional = []
+	const selectMode = mode => {
+		if (config.mode && config.mode !== mode) {
+			throw new TransferError(`Conflicting modes: --${config.mode} and --${mode}`, EXIT.USAGE)
+		}
+		config.mode = mode
+	}
+
+	for (let index = 0; index < argv.length; index++) {
+		const argument = argv[index]
+		if (argument === '--') {
+			positional.push(...argv.slice(index + 1))
+			break
+		}
+
+		const equals = argument.indexOf('=')
+		const name = equals >= 0 ? argument.slice(0, equals) : argument
+		const inlineValue = equals >= 0 ? argument.slice(equals + 1) : undefined
+
+		switch (name) {
+			case '-h':
+			case '--help':
+				config.help = true
+				break
+			case '-i':
+			case '--immediate':
+				selectMode('immediate')
+				break
+			case '--watch':
+				selectMode('watch')
+				break
+			case '--check':
+				selectMode('check')
+				break
+			case '--force':
+				config.force = true
+				break
+			case '--no-verify':
+				config.verify = false
+				break
+			case '--no-resume':
+				config.resume = false
+				break
+			case '--quiet':
+				config.quiet = true
+				break
+			case '--url': {
+				const [value, next] = optionValue(argv, index, inlineValue, name)
+				config.updateUrlText = value
+				index = next
+				break
 			}
-		}).on('uploadProgress', (progressEvent) => {
-			if (progressEvent.transferred == 0)
-			{
-				process.stdout.write(`\r\x1b[K${chalk.gray('Upload started')}\r`)
+			case '--manifest': {
+				const [value, next] = optionValue(argv, index, inlineValue, name)
+				config.manifestPath = value
+				index = next
+				break
+			}
+			case '--backup': {
+				const [value, next] = optionValue(argv, index, inlineValue, name)
+				config.backupPath = value
+				index = next
+				break
+			}
+			case '--download': {
+				const [value, next] = optionValue(argv, index, inlineValue, name)
+				config.downloadPath = value
+				selectMode('download')
+				index = next
+				break
+			}
+			case '--authorization': {
+				const [value, next] = optionValue(argv, index, inlineValue, name)
+				explicitAuthorization = value
+				index = next
+				break
+			}
+			case '--bearer': {
+				const [value, next] = optionValue(argv, index, inlineValue, name)
+				bearerToken = value
+				index = next
+				break
+			}
+			case '--timeout':
+			case '--verify-timeout':
+			case '--verify-interval':
+			case '--max-download-size':
+			case '--max-firmware-size': {
+				const [value, next] = optionValue(argv, index, inlineValue, name)
+				const number = Number(value)
+				if (!Number.isSafeInteger(number) || number <= 0) {
+					throw new TransferError(`${name} must be a positive integer`, EXIT.USAGE)
+				}
+				const property = {
+					'--timeout': 'requestTimeoutMs',
+					'--verify-timeout': 'verifyTimeoutMs',
+					'--verify-interval': 'verifyIntervalMs',
+					'--max-download-size': 'maxDownloadBytes',
+					'--max-firmware-size': 'maxFirmwareBytes'
+				}[name]
+				config[property] = number
+				index = next
+				break
+			}
+			default:
+				if (argument.startsWith('-')) {
+					throw new TransferError(`Unknown option: ${name}`, EXIT.USAGE)
+				}
+				positional.push(argument)
+		}
+	}
+
+	if (config.help) return config
+	config.mode ||= 'watch'
+	if (positional.length > 1) {
+		throw new TransferError('Only one firmware path may be supplied', EXIT.USAGE)
+	}
+	config.firmwarePath = positional[0] || null
+
+	if (config.mode === 'download') {
+		if (config.firmwarePath) throw new TransferError('--download does not accept a firmware input', EXIT.USAGE)
+		if (config.backupPath) throw new TransferError('--backup cannot be combined with --download', EXIT.USAGE)
+	} else if (!config.firmwarePath) {
+		throw new TransferError('A firmware file path is required', EXIT.USAGE)
+	}
+
+	if (config.backupPath && config.mode === 'check') {
+		throw new TransferError('--backup cannot be combined with --check', EXIT.USAGE)
+	}
+	if (!config.manifestPath && config.firmwarePath) {
+		config.manifestPath = `${config.firmwarePath}.md5`
+	}
+
+	if (explicitAuthorization && bearerToken) {
+		throw new TransferError('Use either --authorization or --bearer, not both', EXIT.USAGE)
+	}
+	if (!explicitAuthorization && !bearerToken) {
+		explicitAuthorization = env.UPDATE_AUTHORIZATION || null
+		bearerToken = env.UPDATE_BEARER_TOKEN || env.UPDATE_TOKEN || null
+	}
+	if (explicitAuthorization && bearerToken) {
+		throw new TransferError('Configure either UPDATE_AUTHORIZATION or a bearer token, not both', EXIT.USAGE)
+	}
+	config.authorization = explicitAuthorization || (bearerToken ? `Bearer ${bearerToken}` : null)
+	if (config.authorization && (/[\r\n]/.test(config.authorization) || config.authorization.length > 4096)) {
+		throw new TransferError('Invalid Authorization value', EXIT.USAGE)
+	}
+
+	if (config.mode !== 'check') {
+		if (!config.updateUrlText) {
+			throw new TransferError('Provide --url or the UPDATE_API environment variable', EXIT.USAGE)
+		}
+		let updateUrl
+		try {
+			updateUrl = new URL(config.updateUrlText)
+		} catch {
+			throw new TransferError('The update API is not a valid URL', EXIT.USAGE)
+		}
+		if (!['http:', 'https:'].includes(updateUrl.protocol)) {
+			throw new TransferError('The update API must use HTTP or HTTPS', EXIT.USAGE)
+		}
+		if (updateUrl.username || updateUrl.password) {
+			throw new TransferError('URL credentials are not supported; use an Authorization option', EXIT.USAGE)
+		}
+		updateUrl.hash = ''
+		config.updateUrl = updateUrl
+	}
+
+	return config
+}
+
+function normalizeManifestName(name) {
+	return name.replaceAll('\\', '/').split('/').at(-1)
+}
+
+export function parseStrictManifest(text, firmwareName) {
+	const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd()
+	const lines = normalized.split('\n')
+	if (lines.length !== 2 || lines.some(line => !line)) {
+		throw new TransferError('Manifest must contain exactly two non-empty md5sum records', EXIT.LOCAL_INPUT)
+	}
+
+	const records = new Map()
+	for (const line of lines) {
+		const match = /^([0-9a-fA-F]{32}) ([ *])(.+)$/.exec(line)
+		if (!match) {
+			throw new TransferError('Manifest contains a malformed md5sum record', EXIT.LOCAL_INPUT)
+		}
+		const name = normalizeManifestName(match[3])
+		const hash = match[1].toLowerCase()
+		if (records.has(name)) {
+			throw new TransferError(`Manifest contains a duplicate record for ${name}`, EXIT.LOCAL_INPUT)
+		}
+		records.set(name, hash)
+	}
+
+	const expectedNames = new Set([firmwareName, `${firmwareName} (compressed)`])
+	if (records.size !== expectedNames.size || [...records.keys()].some(name => !expectedNames.has(name))) {
+		throw new TransferError(
+			`Manifest must name exactly "${firmwareName}" and "${firmwareName} (compressed)"`,
+			EXIT.LOCAL_INPUT
+		)
+	}
+
+	return {
+		rawMd5: records.get(firmwareName),
+		compressedMd5: records.get(`${firmwareName} (compressed)`)
+	}
+}
+
+function md5Hex(data) {
+	return createHash('md5').update(data).digest('hex')
+}
+
+async function readFileAsInput(path, label) {
+	try {
+		return await fs.readFile(path)
+	} catch (error) {
+		throw new TransferError(
+			`Unable to read ${label} "${path}": ${sanitizeDeviceText(error.message)}`,
+			EXIT.LOCAL_INPUT,
+			{ cause: error }
+		)
+	}
+}
+
+export async function prepareFirmware(config) {
+	const firmwarePath = resolve(config.firmwarePath)
+	const manifestPath = resolve(config.manifestPath)
+	const compressed = await readFileAsInput(firmwarePath, 'firmware')
+	if (compressed.length === 0 || compressed.length > config.maxFirmwareBytes) {
+		throw new TransferError('Compressed firmware is empty or exceeds the configured safety limit', EXIT.LOCAL_INPUT)
+	}
+
+	let raw
+	try {
+		raw = gunzipSync(compressed, { maxOutputLength: config.maxFirmwareBytes })
+	} catch (error) {
+		throw new TransferError(
+			`Firmware is not a valid bounded gzip stream: ${sanitizeDeviceText(error.message)}`,
+			EXIT.LOCAL_INPUT,
+			{ cause: error }
+		)
+	}
+	if (raw.length === 0 || raw.length > config.maxFirmwareBytes) {
+		throw new TransferError('Raw firmware is empty or exceeds the configured safety limit', EXIT.LOCAL_INPUT)
+	}
+
+	const manifestText = (await readFileAsInput(manifestPath, 'manifest')).toString('utf8')
+	const manifest = parseStrictManifest(manifestText, basename(firmwarePath))
+	const calculatedCompressedMd5 = md5Hex(compressed)
+	const calculatedRawMd5 = md5Hex(raw)
+
+	if (manifest.compressedMd5 !== calculatedCompressedMd5) {
+		throw new TransferError(
+			`Compressed firmware MD5 mismatch (manifest ${manifest.compressedMd5}, calculated ${calculatedCompressedMd5})`,
+			EXIT.INTEGRITY
+		)
+	}
+	if (manifest.rawMd5 !== calculatedRawMd5) {
+		throw new TransferError(
+			`Raw firmware MD5 mismatch (manifest ${manifest.rawMd5}, calculated ${calculatedRawMd5})`,
+			EXIT.INTEGRITY
+		)
+	}
+
+	return {
+		firmwarePath,
+		manifestPath,
+		fileName: basename(firmwarePath),
+		compressed,
+		compressedMd5: calculatedCompressedMd5,
+		rawMd5: calculatedRawMd5,
+		rawSize: raw.length
+	}
+}
+
+function sanitizeDeviceText(value, maxLength = 2048) {
+	return String(value ?? '')
+		.replace(/\x1B(?:[@-_][0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\)?)/g, '')
+		.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+		.slice(0, maxLength)
+}
+
+function isRetryableNetworkError(error) {
+	return error?.exitCode === EXIT.NETWORK || NETWORK_ERROR_CODES.has(error?.code)
+}
+
+function commonHeaders(config) {
+	return {
+		'User-Agent': USER_AGENT,
+		...(config.authorization ? { Authorization: config.authorization } : {})
+	}
+}
+
+async function requestAttempt(resolver, url, {
+	method = 'GET',
+	headers = {},
+	body = null,
+	timeoutMs,
+	maxResponseBytes
+}) {
+	const transport = url.protocol === 'https:' ? https : http
+	const options = resolver.requestOptions(url, headers)
+	options.method = method
+
+	return await new Promise((resolvePromise, rejectPromise) => {
+		let bodyCommitted = false
+		let settled = false
+		let timer
+
+		const finishError = error => {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			error.bodyCommitted = bodyCommitted
+			if (error instanceof TransferError) rejectPromise(error)
+			else {
+				const wrapped = new TransferError(
+					`Network request failed: ${sanitizeDeviceText(error.message)}`,
+					EXIT.NETWORK,
+					{ cause: error }
+				)
+				wrapped.code = error.code
+				wrapped.bodyCommitted = bodyCommitted
+				rejectPromise(wrapped)
+			}
+		}
+
+		const request = transport.request(options, response => {
+			const chunks = []
+			let received = 0
+			response.on('data', chunk => {
+				received += chunk.length
+				if (received > maxResponseBytes) {
+					response.destroy(new TransferError('Response exceeds the configured safety limit', EXIT.PROTOCOL))
+					return
+				}
+				chunks.push(chunk)
+			})
+			response.on('error', finishError)
+			response.on('end', () => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				resolvePromise({
+					statusCode: response.statusCode || 0,
+					headers: response.headers,
+					body: Buffer.concat(chunks)
+				})
+			})
+		})
+		request.on('error', finishError)
+
+		timer = setTimeout(() => {
+			const timeoutError = new Error(`Request timed out after ${timeoutMs} ms`)
+			timeoutError.code = 'ETIMEDOUT'
+			request.destroy(timeoutError)
+		}, timeoutMs)
+
+		if (body === null) {
+			request.end()
+			return
+		}
+
+		const commitBody = () => {
+			if (settled || bodyCommitted) return
+			bodyCommitted = true
+			request.end(body)
+		}
+
+		request.once('socket', socket => {
+			if (!socket.connecting) {
+				commitBody()
 				return
 			}
-
-			const percentCompleted = Math.round((progressEvent.transferred / progressEvent.total) * 100)
-			process.stdout.write(`\r\x1b[K${chalk.gray(`Upload progress: ${percentCompleted}%`)}\r`)
-
-			if (progressEvent.transferred === progressEvent.total) {
-				process.stdout.write(`\r\x1b[K${chalk.gray('Upload completed!')}\r`)
-				if (!immediate) {
-					process.title = `Upload completed, waiting for response`
-				}
-			}
+			socket.once(url.protocol === 'https:' ? 'secureConnect' : 'connect', commitBody)
 		})
-
-		process.stdout.write(`\r\x1b[K`) // clear line
-
-		console.log(chalk.green.bold('Upload successful!'))
-
-		if (!immediate) {
-			process.title = `Upload successful`
-		}
-
-		if (response.body !== 'ok!') {
-			console.error(chalk.red.bold('The API response was not as expected!'))
-			console.error('Response:', response.body)
-			if (!immediate) {
-				process.title = `Update failed`
-			}
-			return { success: false, error: 'Unexpected API response' }
-		}
-
-		process.expectedFirmwareHash = md5List[fileName]
-
-		if (!immediate && !skipInfoCheck) {
-			await displayInformation(2000)
-		}
-
-		process.ongoingRequest = false
-		return { success: true }
-
-	} catch (error) {
-		process.stdout.write(`\x1b]9;4;0;0\x07`) // clear progress
-		process.stdout.write(`\r\x1b[K`) // clear line
-
-		if (!immediate) {
-			process.title = `Upload failed`
-			// Only send notification if not in test/CI environment
-			if (!process.env.NO_NOTIFIER && !process.env.CI) {
-				notifier.notify({ title: '❌ Error while uploading firmware', message: error?.message || `See console for details`, sound: true, icon: 'None' })
-			}
-		}
-
-		if (error.response && error.response.headers['content-type']?.includes('text/plain')) {
-			console.error('❌ Received an error with status code:', error.response.statusCode)
-			console.error(chalk.red.bold(error.response.body || error.response.statusMessage))
-		} else if (error.message) {
-			console.error(chalk.red.bold`❌ Error`, error.message)
-		} else {
-			console.error(chalk.red.bold`❌ Error`)
-			console.error(error)
-		}
-
-		process.ongoingRequest = false
-		return { success: false, error: error.message || 'Upload failed' }
-	}
+	})
 }
 
-// Wrapper for watch mode - calls uploadFirmware with watch-mode options
-async function onModified(filePath) {
-	await uploadFirmware(filePath, { immediate: false, skipInfoCheck: false })
-}
-
-// Immediate mode: upload right away and exit
-if (immediateMode) {
-	console.info(chalk.cyan`Immediate mode: uploading file directly`)
-	console.info(chalk.bold(resolvedPath))
-	
+async function requestBuffer(resolver, url, options) {
 	try {
-		const result = await uploadFirmware(filePath, { immediate: true, skipInfoCheck: true })
-		if (result.success) {
-			console.log(chalk.green.bold('✅ Upload completed successfully!'))
-			process.exit(0)
-		} else {
-			console.error(chalk.red.bold('❌ Upload failed:'), result.error || 'Unknown error')
-			process.exit(1)
-		}
+		return await requestAttempt(resolver, url, options)
 	} catch (error) {
-		console.error(chalk.red.bold('❌ Error during upload:'), error.message || error)
-		process.exit(1)
+		const canRefresh = options.safeRefresh && isRetryableNetworkError(error) && !error.bodyCommitted
+		if (!canRefresh || !(await resolver.refreshOnce())) throw error
+		return await requestAttempt(resolver, url, options)
 	}
 }
 
-// Watch mode (default behavior)
-const watcher = watch(filePath)
+function endpoint(updateUrl, path) {
+	return new URL(path, `${updateUrl.protocol}//${updateUrl.host}/`)
+}
 
-process.stdout.write('\x1b[H\x1b[2J') // clear screen
+function statusBody(response) {
+	const body = sanitizeDeviceText(response.body.toString('utf8')).trim()
+	return body ? `: ${body}` : ''
+}
 
-// onModified(filePath)
+function parseHashCandidate(value) {
+	const match = String(value ?? '').match(/\b([0-9a-fA-F]{32})\b/)
+	return match ? match[1].toLowerCase() : null
+}
 
-// displayInformation(0)
-
-let debounceId = 0
-
-// Event handler for ready
-watcher.on('ready', () => {
-	console.info(chalk.cyan`Watching for file changes on:\n` + chalk.bold(resolvedPath));
-	process.title = `Watching ${basename(resolvedPath)}`
-	// notifier.notify({ title: '️ℹ Watching for file changes on:', message: `${resolvedPath}`, sound: false, icon: 'None' })
-})
-
-// Event handler for file changes
-watcher.on('change', (path) => {
-	if (!process.ongoingRequest) {
-		process.stdout.write(`\r\x1b[K${chalk.gray('File change detected.')}\r`)
-		// process.title = `File modified ${basename(path)}`
-	}
-
-	clearTimeout(debounceId)
-	debounceId = setTimeout(onModified.bind(onModified, path), 1000)
-})
-
-// Event handler for file deletions
-watcher.on('unlink', (path) => {
-	process.stdout.write('\x1b[H\x1b[2J') // clear screen
-
-	console.info(chalk.yellow('The build file has been removed.'))
-	// console.info(chalk.gray('Waiting for the file to be rebuilt'))
-	console.info(chalk.gray(path))
-})
-
-// Event handler for errors
-watcher.on('error', (error) => {
-	console.error(chalk.bold.red('An error occurred while watching the file:'))
-	console.error(error)
-	process.title = `Error watching file`
-	if (!process.env.NO_NOTIFIER && !process.env.CI) {
-		notifier.notify({ title: '❌ Error watching for file changes on:', message: `${resolvedPath}`, sound: true, icon: 'None' })
-	}
-})
-
-// On shutdown, close the watcher
-process.on('SIGINT', () => {
-	if (process.ongoingRequest && !process.forceExit) {
-		console.info(chalk.yellow('\nAn ongoing request is in progress, press Ctrl+C again to force exit.'))
-		process.forceExit = true
-		return
-	}
-
-	process.stdout.write(`\x1b]9;4;0;0\x07`) // clear progress
-	process.stdout.write('\x1b[H\x1b[2J') // clear screen
-	process.title = ``
-
-	// console.info(chalk.yellow('Stopping the watcher...'));
-	watcher.close().then(() => {
-		console.info(chalk.green('Watcher stopped.'));
-		process.exit(0);
-	}).catch((error) => {
-		console.error(chalk.red('Error stopping the watcher:'), error);
-		process.exit(1);
-	});
-});
-
-async function displayInformation(waitInitial = 2000) {
-	process.stdout.write(`\r\x1b[K${chalk.gray(`Getting information...`)}`)
-
-	await new Promise(resolve => setTimeout(resolve, waitInitial))
-
-	const waitFor = 20 * 1000
-
-	let start = Date.now()
-
-	let timerId = setInterval(async () => {
-		const elapsed = Math.min((Date.now() - start) / (waitFor), 1), remaining = Math.max(Math.round((waitFor - Date.now() + start) / 1000), 0)
-
-		const steps = 40, progress = Math.round(elapsed * steps)
-
-		let bar = '━'.repeat(progress), text = `${Math.round(elapsed * 100)}%`
-
-		bar = bar.substring(0, bar.length - text.length)
-
-		const remainingBar = '─'.repeat(steps - bar.length - text.length)
-
-		const pattern = [ '⡿', '⣟', '⣯', '⣷', '⣾', '⣽', '⣻', '⢿' ]
-
-		// process.stdout.write(`\r\x1b[K${chalk.yellow(bar) + chalk.yellow.bold(text) + chalk.gray(remainingBar)}\r`) // (${remaining}s)
-
-		process.stdout.write(`\r\x1b[K${elapsed < 1 ? chalk.yellow(pattern[Math.floor(elapsed * 200) % pattern.length]) : "⏳"} ${((Date.now() - start) / 1000).toFixed(0)}s`)
-
-		process.title = (elapsed < 1 ? pattern[Math.floor(elapsed * 200) % pattern.length] : "⏳") + ` Waiting (${((Date.now() - start) / 1000).toFixed(0)}s)`
-
-		// Set the progress using ESC ] 9 ; 4 ; <state> ; <progress> BEL
-		process.stdout.write(`\x1b]9;4;1;${Math.round(elapsed * 100)}\x07`)
-
-		if (elapsed >= 1) {
-			// clearInterval(timerId)
-			// process.stdout.write(`\r\x1b[K`)
+export function parseInfoHash(body, contentType = '') {
+	const text = sanitizeDeviceText(body.toString('utf8'), 64 * 1024)
+	if (contentType.includes('json') || text.trimStart().startsWith('{')) {
+		try {
+			const object = JSON.parse(text)
+			for (const key of ['hash', 'firmwareHash', 'firmware_hash', 'md5', 'firmware md5']) {
+				const hash = parseHashCandidate(object?.[key])
+				if (hash) return hash
+			}
+		} catch {
+			// The legacy plain-line parser below is intentionally the fallback.
 		}
-	}, 100)
+	}
+
+	for (const line of text.split(/\r?\n/)) {
+		const separator = line.indexOf(':')
+		if (separator < 0) continue
+		const key = line.slice(0, separator).trim().toLowerCase()
+		if (!['hash', 'firmware hash', 'firmware md5', 'md5'].includes(key)) continue
+		const hash = parseHashCandidate(line.slice(separator + 1))
+		if (hash) return hash
+	}
+	return null
+}
+
+async function fetchFirmwareInfo(resolver, config, { polling = false, deadline = null } = {}) {
+	const candidates = [endpoint(config.updateUrl, '/update/info'), endpoint(config.updateUrl, '/info')]
+	let firstFailure = null
+
+	for (let index = 0; index < candidates.length; index++) {
+		const remaining = deadline === null ? config.requestTimeoutMs : deadline - Date.now()
+		if (remaining <= 0) {
+			throw new TransferError('Firmware information deadline expired', EXIT.NETWORK)
+		}
+		const response = await requestBuffer(resolver, candidates[index], {
+			headers: commonHeaders(config),
+			timeoutMs: Math.min(config.requestTimeoutMs, remaining),
+			maxResponseBytes: 256 * 1024,
+			safeRefresh: polling || index === 0
+		})
+
+		if (response.statusCode >= 200 && response.statusCode < 300) {
+			const hash = parseInfoHash(response.body, String(response.headers['content-type'] || ''))
+			if (hash) return { hash, endpoint: candidates[index], response }
+			firstFailure ||= new TransferError(
+				`${candidates[index].pathname} did not contain a valid firmware hash`,
+				EXIT.PROTOCOL
+			)
+			continue
+		}
+
+		if (index === 0 && [404, 405, 501].includes(response.statusCode)) continue
+		throw new TransferError(
+			`${candidates[index].pathname} returned HTTP ${response.statusCode}${statusBody(response)}`,
+			EXIT.PROTOCOL
+		)
+	}
+
+	throw firstFailure || new TransferError('The device did not report a firmware hash', EXIT.PROTOCOL)
+}
+
+function multipartBody(firmware) {
+	const boundary = `----------------ASA${randomBytes(16).toString('hex')}`
+	const safeName = firmware.fileName.replace(/["\r\n]/g, '_')
+	const prefix = Buffer.from(
+		`--${boundary}\r\n` +
+		'Content-Disposition: form-data; name="MD5"\r\n\r\n' +
+		`${firmware.compressedMd5}\r\n` +
+		`--${boundary}\r\n` +
+		`Content-Disposition: form-data; name="firmware"; filename="${safeName}"\r\n` +
+		'Content-Type: application/octet-stream\r\n\r\n',
+		'utf8'
+	)
+	const suffix = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8')
+	return {
+		boundary,
+		body: Buffer.concat([prefix, firmware.compressed, suffix])
+	}
+}
+
+async function uploadCompressedFirmware(resolver, config, firmware) {
+	const multipart = multipartBody(firmware)
+	const headers = {
+		...commonHeaders(config),
+		'Content-Type': `multipart/form-data; boundary=${multipart.boundary}`,
+		'Content-Length': String(multipart.body.length)
+	}
+	const response = await requestBuffer(resolver, config.updateUrl, {
+		method: 'POST',
+		headers,
+		body: multipart.body,
+		timeoutMs: config.requestTimeoutMs,
+		maxResponseBytes: 256 * 1024,
+		safeRefresh: true
+	})
+
+	if (response.statusCode < 200 || response.statusCode >= 300) {
+		throw new TransferError(
+			`Upload returned HTTP ${response.statusCode}${statusBody(response)}`,
+			EXIT.UPLOAD_REJECTED
+		)
+	}
+	if (!response.body.equals(Buffer.from('ok!'))) {
+		throw new TransferError(
+			`Upload response was not the exact acknowledgement "ok!"${statusBody(response)}`,
+			EXIT.UPLOAD_REJECTED
+		)
+	}
+}
+
+function delay(milliseconds) {
+	return new Promise(resolvePromise => setTimeout(resolvePromise, milliseconds))
+}
+
+async function verifyAfterReboot(resolver, config, expectedRawMd5, logger) {
+	const deadline = Date.now() + config.verifyTimeoutMs
+	let lastHash = null
+	let lastError = null
+
+	while (Date.now() <= deadline) {
+		try {
+			const info = await fetchFirmwareInfo(resolver, config, { polling: true, deadline })
+			lastHash = info.hash
+			if (lastHash === expectedRawMd5) return
+			lastError = null
+		} catch (error) {
+			lastError = error
+		}
+
+		const remaining = deadline - Date.now()
+		if (remaining <= 0) break
+		logger.detail('Waiting for the device to reboot and report the new hash…')
+		await delay(Math.min(config.verifyIntervalMs, remaining))
+	}
+
+	const detail = lastHash
+		? `last reported ${lastHash}`
+		: `last error: ${sanitizeDeviceText(lastError?.message || 'no response')}`
+	throw new TransferError(
+		`Post-reboot firmware verification failed; expected ${expectedRawMd5}, ${detail}`,
+		EXIT.POST_VERIFY
+	)
+}
+
+function parseContentLength(headers, label) {
+	const value = headers['content-length']
+	if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+		throw new TransferError(`${label} omitted a valid Content-Length`, EXIT.PROTOCOL)
+	}
+	const number = Number(value)
+	if (!Number.isSafeInteger(number) || number < 0) {
+		throw new TransferError(`${label} supplied an invalid Content-Length`, EXIT.PROTOCOL)
+	}
+	return number
+}
+
+function parseHeaderMd5(headers, name) {
+	const value = headers[name]
+	if (value === undefined) return null
+	if (Array.isArray(value)) {
+		throw new TransferError(`Multiple ${name} headers are not allowed`, EXIT.PROTOCOL)
+	}
+
+	if (name === 'content-md5') {
+		const normalized = String(value).trim()
+		if (!/^[A-Za-z0-9+/]{22}==$/.test(normalized)) {
+			throw new TransferError('Content-MD5 is not a valid MD5 digest', EXIT.PROTOCOL)
+		}
+		const decoded = Buffer.from(normalized, 'base64')
+		if (decoded.length !== 16) {
+			throw new TransferError('Content-MD5 is not a 16-byte MD5 digest', EXIT.PROTOCOL)
+		}
+		return decoded.toString('hex')
+	}
+
+	if (name === 'etag') {
+		const match = /^(?:W\/)?"([0-9a-fA-F]{32})"$/.exec(String(value).trim())
+		if (!match) throw new TransferError('ETag is present but is not a firmware MD5', EXIT.PROTOCOL)
+		return match[1].toLowerCase()
+	}
+
+	const hash = parseHashCandidate(value)
+	if (!hash || String(value).trim().toLowerCase() !== hash) {
+		throw new TransferError('X-Firmware-MD5 is not an exact hexadecimal MD5', EXIT.PROTOCOL)
+	}
+	return hash
+}
+
+function collectDownloadHashes(headers, targetMap, source) {
+	for (const name of ['x-firmware-md5', 'content-md5', 'etag']) {
+		const hash = parseHeaderMd5(headers, name)
+		if (!hash) continue
+		if (targetMap.size && [...targetMap.values()].some(existing => existing !== hash)) {
+			throw new TransferError(`${source} ${name} conflicts with another expected firmware hash`, EXIT.INTEGRITY)
+		}
+		targetMap.set(`${source}:${name}`, hash)
+	}
+}
+
+async function pathSize(path) {
+	try {
+		const stat = await fs.stat(path)
+		if (!stat.isFile()) throw new Error('not a regular file')
+		return stat.size
+	} catch (error) {
+		if (error.code === 'ENOENT') return 0
+		throw new TransferError(
+			`Unable to inspect "${path}": ${sanitizeDeviceText(error.message)}`,
+			EXIT.LOCAL_IO,
+			{ cause: error }
+		)
+	}
+}
+
+async function writePart(path, data, append) {
+	try {
+		await fs.mkdir(dirname(path), { recursive: true })
+		await fs.writeFile(path, data, { flag: append ? 'a' : 'w' })
+	} catch (error) {
+		throw new TransferError(
+			`Unable to write "${path}": ${sanitizeDeviceText(error.message)}`,
+			EXIT.LOCAL_IO,
+			{ cause: error }
+		)
+	}
+}
+
+async function removePart(path) {
+	try {
+		await fs.unlink(path)
+	} catch (error) {
+		if (error.code !== 'ENOENT') {
+			throw new TransferError(
+				`Unable to remove invalid partial download "${path}": ${sanitizeDeviceText(error.message)}`,
+				EXIT.LOCAL_IO,
+				{ cause: error }
+			)
+		}
+	}
+}
+
+async function verifiedDownload(resolver, config, destination, logger) {
+	const target = resolve(destination)
+	const part = `${target}.part`
+	const downloadUrl = endpoint(config.updateUrl, '/firmware/download')
+	const info = await fetchFirmwareInfo(resolver, config)
+	const expectedHashes = new Map([['/update/info', info.hash]])
+
+	const head = await requestBuffer(resolver, downloadUrl, {
+		method: 'HEAD',
+		headers: commonHeaders(config),
+		timeoutMs: config.requestTimeoutMs,
+		maxResponseBytes: 1024,
+		safeRefresh: true
+	})
+	if (head.statusCode < 200 || head.statusCode >= 300) {
+		throw new TransferError(
+			`Firmware download metadata returned HTTP ${head.statusCode}${statusBody(head)}`,
+			EXIT.PROTOCOL
+		)
+	}
+	const totalLength = parseContentLength(head.headers, 'Firmware download metadata')
+	if (totalLength <= 0 || totalLength > config.maxDownloadBytes) {
+		throw new TransferError('Firmware download size exceeds the configured safety limit', EXIT.PROTOCOL)
+	}
+	collectDownloadHashes(head.headers, expectedHashes, 'HEAD')
+
+	let offset = config.resume ? await pathSize(part) : 0
+	if (!config.resume || offset > totalLength) {
+		await writePart(part, Buffer.alloc(0), false)
+		offset = 0
+	}
+
+	if (offset < totalLength) {
+		const requestHeaders = {
+			...commonHeaders(config),
+			...(offset > 0 ? { Range: `bytes=${offset}-` } : {})
+		}
+		const response = await requestBuffer(resolver, downloadUrl, {
+			headers: requestHeaders,
+			timeoutMs: config.requestTimeoutMs,
+			maxResponseBytes: totalLength,
+			safeRefresh: true
+		})
+
+		let append = false
+		let expectedBodyLength = totalLength
+		if (offset > 0 && response.statusCode === 206) {
+			const contentRange = String(response.headers['content-range'] || '')
+			const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(contentRange)
+			if (!match || Number(match[1]) !== offset || Number(match[2]) !== totalLength - 1 || Number(match[3]) !== totalLength) {
+				throw new TransferError('Range response Content-Range does not match the requested resume offset', EXIT.PROTOCOL)
+			}
+			append = true
+			expectedBodyLength = totalLength - offset
+		} else if (response.statusCode === 200) {
+			offset = 0
+		} else {
+			throw new TransferError(
+				`Firmware download returned HTTP ${response.statusCode}${statusBody(response)}`,
+				EXIT.PROTOCOL
+			)
+		}
+
+		const responseLength = parseContentLength(response.headers, 'Firmware download')
+		if (responseLength !== expectedBodyLength || response.body.length !== expectedBodyLength) {
+			throw new TransferError(
+				`Firmware download length mismatch (expected ${expectedBodyLength}, received ${response.body.length})`,
+				EXIT.INTEGRITY
+			)
+		}
+		collectDownloadHashes(response.headers, expectedHashes, 'GET')
+		await writePart(part, response.body, append)
+	}
+
+	const finalSize = await pathSize(part)
+	if (finalSize !== totalLength) {
+		throw new TransferError(
+			`Partial firmware size mismatch (expected ${totalLength}, received ${finalSize})`,
+			EXIT.INTEGRITY
+		)
+	}
+
+	let downloaded
+	try {
+		downloaded = await fs.readFile(part)
+	} catch (error) {
+		throw new TransferError(
+			`Unable to verify "${part}": ${sanitizeDeviceText(error.message)}`,
+			EXIT.LOCAL_IO,
+			{ cause: error }
+		)
+	}
+	const actualMd5 = md5Hex(downloaded)
+	const mismatched = [...expectedHashes.entries()].filter(([, expected]) => expected !== actualMd5)
+	if (mismatched.length) {
+		await removePart(part)
+		throw new TransferError(
+			`Downloaded firmware MD5 ${actualMd5} does not match ${mismatched.map(([source, hash]) => `${source} ${hash}`).join(', ')}`,
+			EXIT.INTEGRITY
+		)
+	}
 
 	try {
-		const request = await got(new URL('info', UPDATE_API), {
-			headers,
-			timeout: {
-				connect: 2000,
-				request: 2000,
-				socket: 2000
-			},
-			retry: {
-				limit: 20,
-				errorCodes: ['ETIMEDOUT', 'ECONNRESET', 'EADDRINUSE', 'ECONNREFUSED', 'EPIPE', 'ENETUNREACH', 'EAI_AGAIN', 'ENOTFOUND']
-			}
-		})
+		await fs.rename(part, target)
+	} catch (error) {
+		throw new TransferError(
+			`Unable to atomically publish "${target}": ${sanitizeDeviceText(error.message)}`,
+			EXIT.LOCAL_IO,
+			{ cause: error }
+		)
+	}
+	logger.success(`Verified firmware download: ${target} (${totalLength} bytes, MD5 ${actualMd5})`)
+	return { path: target, size: totalLength, md5: actualMd5 }
+}
 
-		process.stdout.write(`\x1b]9;4;0;0\x07`) // clear progress
+async function initializeResolver(config, logger) {
+	const resolver = new EndpointResolver(config.updateUrl, logger)
+	await resolver.initialize()
+	return resolver
+}
 
-		process.stdout.write(`\r\x1b[K`) // clear line
+export async function performUpload(config, logger = createLogger(config)) {
+	const firmware = await prepareFirmware(config)
+	logger.info(
+		`Validated ${firmware.fileName}: compressed ${firmware.compressed.length} bytes ` +
+		`(${firmware.compressedMd5}), raw ${firmware.rawSize} bytes (${firmware.rawMd5})`
+	)
 
-		const info = {}
+	if (config.mode === 'check') {
+		logger.success('Firmware and strict two-record manifest are valid; no device was contacted.')
+		return { checked: true, firmware }
+	}
 
-		request.body.split(/[\r\n]+/).forEach(line => {
-			const index = line.indexOf(':')
+	const resolver = await initializeResolver(config, logger)
+	const before = await fetchFirmwareInfo(resolver, config)
+	logger.detail(`Device firmware before transfer: ${before.hash}`)
+	if (before.hash === firmware.rawMd5 && !config.force) {
+		logger.success('Device already has the requested firmware; upload skipped. Use --force to override.')
+		return { skipped: true, firmware }
+	}
 
-			if (index < 0) return
+	if (config.backupPath) {
+		logger.info('Downloading a verified pre-update backup…')
+		await verifiedDownload(resolver, config, config.backupPath, logger)
+	}
 
-			const key = line.substring(0, index).trim()
-			const value = line.substring(index + 1).trim()
+	logger.info(`Uploading ${firmware.fileName}…`)
+	await uploadCompressedFirmware(resolver, config, firmware)
+	logger.success('Device returned the exact upload acknowledgement.')
 
-			if (!key || !value) return
+	if (config.verify) {
+		await verifyAfterReboot(resolver, config, firmware.rawMd5, logger)
+		logger.success(`Post-reboot firmware hash verified: ${firmware.rawMd5}`)
+	} else {
+		logger.warn('Post-reboot verification was explicitly disabled with --no-verify.')
+	}
 
-			info[key] = value
+	return { uploaded: true, firmware }
+}
 
-			if (!['hostname', 'firmware hash', 'program usage', 'build', 'uptime'].includes(key)) return
+export async function performDownload(config, logger = createLogger(config)) {
+	const resolver = await initializeResolver(config, logger)
+	return await verifiedDownload(resolver, config, config.downloadPath, logger)
+}
 
-			console.log(chalk.cyan.green(key), value)
-		})
+function redactSecrets(message, config) {
+	let result = sanitizeDeviceText(message, 8192)
+	if (config?.authorization) {
+		const values = [config.authorization]
+		const separator = config.authorization.indexOf(' ')
+		if (separator >= 0 && separator + 1 < config.authorization.length) {
+			values.push(config.authorization.slice(separator + 1))
+		}
+		for (const value of values.sort((left, right) => right.length - left.length)) {
+			if (value) result = result.replaceAll(value, '[redacted]')
+		}
+	}
+	return result
+}
 
-		if (!process.expectedFirmwareHash) {
-			console.log(chalk.cyan.gray('Missing Expected Firmware Hash'))
+async function runWatch(config, logger) {
+	const firmwarePath = resolve(config.firmwarePath)
+	const manifestPath = resolve(config.manifestPath)
+	let running = false
+	let pending = false
+	let debounceTimer = null
+	let closing = false
+
+	const transfer = async () => {
+		if (running) {
+			pending = true
 			return
 		}
-
-		if (info['firmware hash'] !== process.expectedFirmwareHash) {
-			process.stdout.write('\u0007'); // Beep
-			console.error(chalk.red.bold.inverse('❌ Firmware hash mismatch!'))
-			console.error('Expected:', process.expectedFirmwareHash || 'Unknown')
-			console.error('Received:', info['firmware hash'])
-			process.title = `❌ Firmware hash mismatch ${basename(filePath)}`
-			if (!process.env.NO_NOTIFIER && !process.env.CI) {
-				notifier.notify({ title: '❌ Firmware hash mismatch', message: ('Expected: ' + process.expectedFirmwareHash || 'Unknown') + "\n" + ('Received: ' + info['firmware hash']), sound: true, icon: 'None' })
+		running = true
+		do {
+			pending = false
+			try {
+				await performUpload(config, logger)
+			} catch (error) {
+				logger.error(redactSecrets(error.message || error, config))
 			}
-			return
+		} while (pending && !closing)
+		running = false
+	}
+
+	const watcher = watch([firmwarePath, manifestPath], {
+		ignoreInitial: true,
+		awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 }
+	})
+	watcher.on('ready', () => {
+		logger.info(`Watching:\n  ${firmwarePath}\n  ${manifestPath}`)
+	})
+	watcher.on('all', (eventName, path) => {
+		logger.detail(`${eventName}: ${path}`)
+		clearTimeout(debounceTimer)
+		debounceTimer = setTimeout(transfer, 500)
+	})
+	watcher.on('error', error => logger.error(`Watch error: ${redactSecrets(error.message || error, config)}`))
+
+	await new Promise(resolvePromise => {
+		const shutdown = async () => {
+			if (closing) return
+			closing = true
+			clearTimeout(debounceTimer)
+			await watcher.close()
+			resolvePromise()
+		}
+		process.once('SIGINT', shutdown)
+		process.once('SIGTERM', shutdown)
+	})
+	logger.info('Watcher stopped.')
+	return closing
+}
+
+export async function main(argv = process.argv.slice(2), env = process.env) {
+	let config
+	try {
+		config = parseArguments(argv, env)
+		if (config.help) {
+			console.log(usage())
+			return EXIT.OK
 		}
 
-		let message = info['firmware hash']
-
-		if (info['build']) {
-			const match = info['build'].match(/(\w{3}\s+\d+\s+\d{4}\s+\d{2}:\d{2}:\d{2})/)
-			if (match) {
-				const buildDate = new Date(match[1])
-				if (!isNaN(buildDate))
-					message += `\nBuilt: ${humanTimeDiff(buildDate)}`
-			}
+		const logger = createLogger(config)
+		if (config.mode === 'watch') {
+			const interrupted = await runWatch(config, logger)
+			return interrupted ? EXIT.INTERRUPTED : EXIT.OK
 		}
-
-		if (info['uptime'])
-			message += `\nUptime: ${info['uptime']}`;
-
-		console.log(chalk.green.bold.inverse('✅ Firmware hash matches'))
-		process.title = `✅ Firmware ${basename(filePath)} uploaded`
-		if (!process.env.NO_NOTIFIER && !process.env.CI) {
-			notifier.notify({ title: '✅ Firmware successfully updated', message: message.trim(), sound: false, icon: 'None' })
+		if (config.mode === 'download') {
+			await performDownload(config, logger)
+			return EXIT.OK
 		}
+		await performUpload(config, logger)
+		return EXIT.OK
 	} catch (error) {
-		process.stdout.write(`\r\x1b[K`) // clear line
-		console.error(chalk.red.bold`Error fetching information:`, error.message)
-	} finally {
-		clearInterval(timerId)
-		setTimeout(() => process.stdout.write(`\x1b]9;4;0;0\x07`), 200) // clear progress
+		const exitCode = error instanceof TransferError ? error.exitCode : EXIT.PROTOCOL
+		const logger = createLogger(config || {})
+		logger.error(redactSecrets(error?.message || error, config))
+		return exitCode
 	}
 }
 
-function humanTimeDiff(fromDate, toDate = new Date()) {
-	const ms = toDate - fromDate
-	const sec = Math.floor(ms / 1000)
-	const min = Math.floor(sec / 60)
-	const hr = Math.floor(min / 60)
-	const day = Math.floor(hr / 24)
-
-	if (day > 0) return `${day} day${day !== 1 ? 's' : ''} ago`
-	if (hr > 0) return `${hr} hour${hr !== 1 ? 's' : ''} ago`
-	if (min > 0) return `${min} minute${min !== 1 ? 's' : ''} ago`
-	return `${sec} second${sec !== 1 ? 's' : ''} ago`
-}
-
-function humanBytes(bytes) {
-	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-	let i = 0;
-	while (bytes >= 1024 && i < units.length - 1) {
-		bytes /= 1024;
-		i++;
-	}
-	return `${bytes.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+const isEntryPoint = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))
+if (isEntryPoint) {
+	const exitCode = await main()
+	process.exitCode = exitCode
 }
