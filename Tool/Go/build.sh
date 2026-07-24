@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$script_dir"
+
 if [ "${1:-}" != "--skip-tests" ]; then
 	go test -count=10 ./...
 	go vet ./...
