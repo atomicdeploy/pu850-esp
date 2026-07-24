@@ -196,7 +196,7 @@ if ($selected.Contains('Cpp')) {
     }
 
     Assert-Executable -Name 'cmake' -InstallHint (
-        'Install CMake and Visual Studio 2022 with the Desktop development with C++ workload.'
+        'Install CMake and Visual Studio with the Desktop development with C++ workload.'
     )
     Assert-Executable -Name 'python' -InstallHint (
         'Install Python 3 so the C++ loopback integration suite can run.'
@@ -213,7 +213,6 @@ if ($selected.Contains('Cpp')) {
     Invoke-Native -WorkingDirectory $repoRoot -FilePath 'cmake' -Arguments @(
         '-S', $cppRoot,
         '-B', $cppBuild,
-        '-G', 'Visual Studio 17 2022',
         '-A', 'x64',
         '-DBUILD_TESTING=ON'
     )

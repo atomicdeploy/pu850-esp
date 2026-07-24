@@ -7,7 +7,7 @@ validation.
 
 ## Build and test
 
-From PowerShell with Visual Studio 2022:
+From PowerShell with a Visual Studio Desktop C++ workload:
 
 ```powershell
 .\build.ps1
