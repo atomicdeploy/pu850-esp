@@ -22,6 +22,10 @@ Uploads:
 - cache a `.local` address and perform at most one safe re-resolution after a
   connection failure.
 
+The default DNS/connect deadline is 20 seconds so a cold Windows mDNS lookup
+through a VPN or newly initialized adapter is not mistaken for an offline
+device. `--connect-timeout` remains available for explicit tuning.
+
 Downloads:
 
 - derive `/firmware/download` from the update endpoint unless

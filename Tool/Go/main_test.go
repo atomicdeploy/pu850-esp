@@ -25,6 +25,13 @@ func TestParseOptionsHelp(t *testing.T) {
 	}
 }
 
+func TestLookupTimeoutAllowsColdMDNS(t *testing.T) {
+	t.Parallel()
+	if lookupTimeout != 20*time.Second {
+		t.Fatalf("lookup timeout = %s, want 20s", lookupTimeout)
+	}
+}
+
 func TestReadManifest(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()

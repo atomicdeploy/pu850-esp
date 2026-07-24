@@ -403,7 +403,7 @@ struct Options {
     fs::path download;
     std::wstring endpoint;
     std::wstring authorization;
-    int connect_timeout_ms = 5000;
+    int connect_timeout_ms = 20000;
     int request_timeout_ms = 10000;
     int reboot_timeout_ms = 30000;
     int poll_interval_ms = 750;
@@ -813,7 +813,7 @@ void print_usage() {
         << "      --download PATH         Verified atomic download without upload\n"
         << "      --no-resume             Ignore an existing PATH.part download\n"
         << "      --no-verify             Explicitly disable post-reboot verification\n"
-        << "      --connect-timeout-ms N  Connect timeout (default: 5000)\n"
+        << "      --connect-timeout-ms N  Connect timeout (default: 20000)\n"
         << "      --request-timeout-ms N  Request timeout (default: 10000)\n"
         << "      --reboot-timeout-ms N   Post-hash deadline (default: 30000)\n"
         << "      --poll-interval-ms N    Verification interval (default: 750)\n"
@@ -2740,6 +2740,11 @@ void expect_self_test(bool condition, std::string_view message) {
 }
 
 void run_self_test() {
+    const Options defaults;
+    expect_self_test(
+        defaults.connect_timeout_ms == 20000,
+        "default allows a cold Windows mDNS lookup");
+
     const std::string fixture =
         "90EDAD71A57D0437412D2F3F9EAA46BF *folder/firmware.bin\n"
         "6fb510b13cdc013ad7a29b68f326f37c *firmware.bin (compressed)\r\n";

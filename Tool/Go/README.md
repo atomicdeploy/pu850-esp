@@ -93,6 +93,9 @@ compatible. A hostname is resolved once and pinned for the process. A failed
 cached connection permits one fresh resolution. Device-supplied terminal text
 is control-character sanitized.
 
+The initial lookup has a bounded 20-second window so cold Windows mDNS through
+a VPN or newly initialized adapter can complete before the address is pinned.
+
 Stable process exit codes are:
 
 - `0`: requested operation completed and verification passed

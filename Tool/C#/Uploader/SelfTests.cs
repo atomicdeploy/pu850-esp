@@ -240,6 +240,10 @@ internal static class SelfTests
             "http://should-not-be-used.invalid/update");
         True(parsed.Error is null && parsed.Options is not null, "valid CLI parsed");
         Equal("127.0.0.1", parsed.Options!.UpdateApi.Host, "CLI URL overrides UPDATE_API");
+        Equal(
+            TimeSpan.FromSeconds(20),
+            parsed.Options.ConnectTimeout,
+            "default allows a cold Windows mDNS lookup");
         Equal(TimeSpan.Zero, parsed.Options.InitialPollDelay, "zero initial delay accepted");
 
         var invalid = UploaderOptions.Parse(

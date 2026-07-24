@@ -27,6 +27,8 @@ internal sealed record RequestHeader(string Name, string Value);
 
 internal sealed record UploaderOptions
 {
+    private const double DefaultConnectTimeoutSeconds = 20;
+
     public TransferMode Mode { get; init; } = TransferMode.Upload;
     public string FirmwarePath { get; init; } = string.Empty;
     public string ManifestPath { get; init; } = string.Empty;
@@ -34,7 +36,8 @@ internal sealed record UploaderOptions
     public required Uri UpdateApi { get; init; }
     public Uri? DownloadApi { get; init; }
     public IReadOnlyList<RequestHeader> RequestHeaders { get; init; } = [];
-    public TimeSpan ConnectTimeout { get; init; } = TimeSpan.FromSeconds(5);
+    public TimeSpan ConnectTimeout { get; init; } =
+        TimeSpan.FromSeconds(DefaultConnectTimeoutSeconds);
     public TimeSpan UploadTimeout { get; init; } = TimeSpan.FromMinutes(2);
     public TimeSpan DownloadTimeout { get; init; } = TimeSpan.FromMinutes(2);
     public TimeSpan RebootTimeout { get; init; } = TimeSpan.FromSeconds(45);
@@ -92,7 +95,7 @@ internal sealed record UploaderOptions
         string? bearer = string.IsNullOrWhiteSpace(environmentBearer) ? null : environmentBearer;
         string? backupPath = null;
         var headers = new List<RequestHeader>();
-        var connectTimeout = TimeSpan.FromSeconds(5);
+        var connectTimeout = TimeSpan.FromSeconds(DefaultConnectTimeoutSeconds);
         var uploadTimeout = TimeSpan.FromMinutes(2);
         var downloadTimeout = TimeSpan.FromMinutes(2);
         var rebootTimeout = TimeSpan.FromSeconds(45);
@@ -396,7 +399,7 @@ internal sealed record UploaderOptions
         writer.WriteLine("      --resume               Resume one existing .part with a strict Range request");
         writer.WriteLine("      --bearer TOKEN         Add Authorization: Bearer TOKEN (never logged)");
         writer.WriteLine("      --header NAME:VALUE    Add a private request header; repeat as needed");
-        writer.WriteLine("      --connect-timeout SEC  DNS/connect timeout (default: 5)");
+        writer.WriteLine("      --connect-timeout SEC  DNS/connect timeout (default: 20)");
         writer.WriteLine("      --download-timeout SEC Whole download timeout (default: 120)");
         writer.WriteLine("      --no-verify            Disable remote-hash verification (not recommended)");
         writer.WriteLine();
