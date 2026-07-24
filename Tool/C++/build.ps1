@@ -22,7 +22,7 @@ foreach ($target in $architectures) {
         Remove-Item -LiteralPath $resolved -Recurse -Force
     }
 
-    cmake -S $source -B $build -G 'Visual Studio 17 2022' -A $target -DBUILD_TESTING=ON
+    cmake -S $source -B $build -A $target -DBUILD_TESTING=ON
     if ($LASTEXITCODE -ne 0) { throw "CMake configure failed for $target." }
 
     cmake --build $build --config $Configuration --parallel

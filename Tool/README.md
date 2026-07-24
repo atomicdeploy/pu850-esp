@@ -44,8 +44,8 @@ ambiguous upload.
 
 ## Validate every implementation
 
-On Windows with Node.js, Go, .NET 8, Python 3, CMake, and the Visual Studio
-2022 C++ workload installed:
+On Windows with Node.js, Go, .NET 8, Python 3, CMake, and a Visual Studio
+Desktop C++ workload installed:
 
 ```powershell
 pwsh -File .\Tool\build-all.ps1
