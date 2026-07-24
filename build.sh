@@ -181,7 +181,7 @@ prebuild() {
 #define BUILD_USERNAME "${username_var}"
 #define BUILD_HOSTNAME "${hostname_var}"
 EOF
-	
+
 	# Clean up old checksum file
 	rm -f "${VSCA_BUILD_DIR}/${VSCA_SKETCH}.bin.md5" 2>/dev/null
 	
@@ -203,7 +203,8 @@ parseArgs() {
 				echo -e "\033[0m"
 				echo -e "\033[92;1m  --debug-tools\033[0m         Enable ASA debug tools for dumping variables using web server"
 				echo -e "\033[92;1m  --debug-on-serial\033[0m     Prints ESP debug messages on serial"
-				echo -e "\033[92;1m  --shell-on-serial\033[0m     Enable shell on serial instead of PU850"
+				echo -e "\033[92;1m  --shell-on-serial\033[0m     Enable shell instead of the device UART protocol"
+				echo -e "\033[92;1m  --product-profile NAME\033[0m Select pu850 or rayanlamp identity defaults"
 				echo -e "\033[0m"
 				echo -e "\033[92;1m  --dump-profile\033[0m        Dump the Arduino build profile"
 				echo -e "\033[92;1m  --profile [profile]\033[0m   Use the specified Arduino build profile"
@@ -221,6 +222,25 @@ parseArgs() {
 			--shell-on-serial)
 				build_flags="${build_flags} -DShellOnSerial"
 				shift
+				;;
+			--product-profile)
+				if [ -z "${2:-}" ]; then
+					displayError "Missing product profile name!"
+					exit 1
+				fi
+				case "$2" in
+					pu850)
+						build_flags="${build_flags} -DFW_PRODUCT_PROFILE=1"
+						;;
+					rayanlamp)
+						build_flags="${build_flags} -DFW_PRODUCT_PROFILE=2"
+						;;
+					*)
+						displayError "Unknown product profile: $2"
+						exit 1
+						;;
+				esac
+				shift 2
 				;;
 			--dump-profile)
 				displayInfo "Dumping the Arduino build profile"
@@ -257,6 +277,14 @@ parseArgs() {
 [ "${DEBUG_TOOLS}" = "1" ] && build_flags="${build_flags} -DDebugTools"
 [ "${DEBUG_ON_SERIAL}" = "1" ] && build_flags="${build_flags} -DDebugOnSerial"
 [ "${SHELL_ON_SERIAL}" = "1" ] && build_flags="${build_flags} -DShellOnSerial"
+[ "${PRODUCT_PROFILE}" = "pu850" ] && build_flags="${build_flags} -DFW_PRODUCT_PROFILE=1"
+[ "${PRODUCT_PROFILE}" = "rayanlamp" ] && build_flags="${build_flags} -DFW_PRODUCT_PROFILE=2"
+if [[ "${EXTRA_BUILD_FLAGS:-}" == *FW_OTA_BEARER_TOKEN* ]]; then
+	displayError "Do not pass FW_OTA_BEARER_TOKEN in EXTRA_BUILD_FLAGS; use ignored ~secrets.h."
+	exit 1
+fi
+[ -n "${EXTRA_BUILD_FLAGS:-}" ] && build_flags="${build_flags} ${EXTRA_BUILD_FLAGS}"
+unset FW_OTA_BEARER_TOKEN
 [ "${SKIP_LIBRARIES_DISCOVERY}" = "1" ] && arduino_cli_flags="${arduino_cli_flags} --skip-libraries-discovery"
 
 # Parse command line arguments
@@ -546,7 +574,6 @@ COMPRESSION_RATIO=${compressionRatio}
 FLASH_SIZE_MB=${flashSize}
 FLASH_USAGE_PCT=${totalUsage}
 BOARD_PARAMS='${board_params}'
-BUILD_FLAGS='${build_flags}'
 EOF
 	displayInfo "Build metadata exported to ${BUILD_INFO_FILE}"
 fi

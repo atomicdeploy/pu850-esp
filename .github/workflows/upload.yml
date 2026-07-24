@@ -4,6 +4,7 @@ name: Upload Firmware
 # 
 # Required configuration:
 # - Secret: UPDATE_API - The URL of the device's update API (e.g., http://192.168.1.100/update)
+# - Secret: UPDATE_BEARER_TOKEN - Optional token when FW_OTA_BEARER_TOKEN is set in the firmware
 # - Variable: ENABLE_AUTO_UPLOAD - Set to 'true' to enable automatic uploads after builds
 #
 # The workflow is triggered:
@@ -163,6 +164,7 @@ jobs:
         working-directory: Tool
         env:
           UPDATE_API: ${{ secrets.UPDATE_API }}
+          UPDATE_BEARER_TOKEN: ${{ secrets.UPDATE_BEARER_TOKEN }}
         run: |
           # Find the .bin file
           BIN_FILE=$(find ../firmware -name "*.bin" | head -1)

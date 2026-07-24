@@ -1,47 +1,43 @@
 #pragma once
 
-// Include ESPAsyncWebServer.h first to get its HTTP_* enum definitions
-// This must come before ESPTelnet.h which includes ESP8266WebServer.h
+/*
+ * ESPTelnet includes ESP8266WebServer.h. Pull the async server's HTTP method
+ * definitions in first, then suppress the conflicting synchronous header.
+ */
 #include <ESPAsyncWebServer.h>
-
-// Guard against ESP8266WebServer.h redefining HTTP_* enums
-// This works because ESP8266WebServer.h uses an include guard
 #ifndef ESP8266WEBSERVER_H
 #define ESP8266WEBSERVER_H
 #endif
 
 #include "../ASA0002E.h"
 #include <ESP8266WiFi.h>
-
-// Include ESPTelnet without it pulling in ESP8266WebServer's enum definitions
-// since we already defined the guard above
 #include <ESPTelnet.h>
-#include <EscapeCodes.h>
 
-// const int MAX_TELNET_CLIENTS = 2;
+#define TELNET_SE   0xF0
+#define TELNET_SB   0xFA
+#define TELNET_WILL 0xFB
+#define TELNET_WONT 0xFC
+#define TELNET_DO   0xFD
+#define TELNET_DONT 0xFE
+#define TELNET_IAC  0xFF
 
-U16 Telnet_Port = 23;
+#define TELNET_OPTION_ECHO 0x01
+#define TELNET_OPTION_SGA  0x03
 
-ESPTelnet telnet;
-EscapeCodes ansi;
+enum TelnetInputState : U8 {
+	TelnetState_Data = 0,
+	TelnetState_IAC,
+	TelnetState_Option,
+	TelnetState_Subnegotiation,
+	TelnetState_SubnegotiationIAC,
+};
 
-#define IAC  0xFF
-#define DONT 0xFE
-#define DO   0xFD
-#define WONT 0xFC
-#define WILL 0xFB
+extern bool Telnet_Initialized;
+extern U16 Telnet_Port;
+extern ESPTelnet telnet;
 
-enum {
-    STATE_DATA,    // Normal data
-    STATE_IAC,     // Saw IAC (0xFF)
-    STATE_OPT      // Expecting option after WILL/WONT/DO/DONT
-} telnet_state = STATE_DATA;
-
-U8 telnet_cmd;
-
-void TelnetProcessByte(const C8 ch);
-
-// #define STACK_PROTECTOR 512
-
-// WiFiServer Telnet(Telnet_Port);
-// WiFiClient telnetClients[MAX_TELNET_CLIENTS];
+void TelnetProcessByte(U8 ch);
+void TelnetResetParser();
+bool Telnet_Setup();
+void Telnet_End();
+void Telnet_Service();

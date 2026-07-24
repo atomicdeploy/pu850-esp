@@ -225,11 +225,6 @@ jobs:
           <details>
           <summary>🔧 Build Configuration (Click to expand)</summary>
           
-          ### Build Flags
-          \`\`\`
-          ${BUILD_FLAGS}
-          \`\`\`
-          
           ### Board Parameters
           \`\`\`
           ${BOARD_PARAMS}

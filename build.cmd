@@ -5,7 +5,7 @@ cd /d %~dp0
 setlocal enableextensions
 chcp 65001 >nul
 
-title Build PU850
+title Build firmware
 
 for /F "tokens=1-4 delims=:.," %%a in ("%time%") do set startTime=%%a:%%b:%%c.%%d
 
@@ -18,7 +18,11 @@ set log_file=%VSCA_WORKSPACE_DIR%\build.log
 
 set build.cmd=%~nx0
 
-set arduino_cli_flags=--config-file %VSCA_WORKSPACE_DIR%\.vscode\arduino-cli.yaml
+:: On Windows, Arduino CLI does not expand the Unix-style "~" paths used by the
+:: repository's Linux/CI config. Use the user's native Arduino CLI configuration
+:: by default. Set ARDUINO_CLI_CONFIG to opt into an explicit config file.
+set arduino_cli_flags=
+if defined ARDUINO_CLI_CONFIG set arduino_cli_flags=--config-file "%ARDUINO_CLI_CONFIG%"
 
 set build_flags=-DARDUINO_CLI -DUSE_LOCALH
 
@@ -28,12 +32,19 @@ set ARDUINO_UPDATER_ENABLE_NOTIFICATION=false
 if "%DEBUG_TOOLS%" == "1" set build_flags=%build_flags% -DDebugTools
 if "%DEBUG_ON_SERIAL%" == "1" set build_flags=%build_flags% -DDebugOnSerial
 if "%SHELL_ON_SERIAL%" == "1" set build_flags=%build_flags% -DShellOnSerial
+if /I "%PRODUCT_PROFILE%" == "pu850" set build_flags=%build_flags% -DFW_PRODUCT_PROFILE=1
+if /I "%PRODUCT_PROFILE%" == "rayanlamp" set build_flags=%build_flags% -DFW_PRODUCT_PROFILE=2
+if defined EXTRA_BUILD_FLAGS powershell -NoProfile -Command "if ($env:EXTRA_BUILD_FLAGS -match 'FW_OTA_BEARER_TOKEN') { exit 1 }"
+if errorlevel 1 goto rejectSecretFlag
+if defined EXTRA_BUILD_FLAGS set build_flags=%build_flags% %EXTRA_BUILD_FLAGS%
+set FW_OTA_BEARER_TOKEN=
 if "%SKIP_LIBRARIES_DISCOVERY%" == "1" set arduino_cli_flags=%arduino_cli_flags% --skip-libraries-discovery
 
 :: Parse command line arguments
 call :parseArgs %*
 
 if errorlevel 1 exit /b 1
+if defined help_requested exit /b 0
 
 :: List of commands to check
 set commands=powershell hostname whoami arduino-cli gzip md5sum touch sed ls
@@ -197,6 +208,10 @@ call :elapsedTime %startTime% %endTime%
 
 exit /b 0
 
+:rejectSecretFlag
+	call :displayError "Do not pass FW_OTA_BEARER_TOKEN in EXTRA_BUILD_FLAGS; use ignored ~secrets.h."
+exit /b 1
+
 :ensureCommandExists
 	:: Check if a command exists in the system
 	where %1 >nul 2>nul
@@ -310,12 +325,14 @@ exit /b 0
 		echo.
 		echo [92;1m  --debug-tools[0m         Enable ASA debug tools for dumping variables using web server
 		echo [92;1m  --debug-on-serial[0m     Prints ESP debug messages on serial
-		echo [92;1m  --shell-on-serial[0m     Enable shell on serial instead of PU850
+		echo [92;1m  --shell-on-serial[0m     Enable shell instead of the device UART protocol
+		echo [92;1m  --product-profile NAME[0m Select pu850 or rayanlamp identity defaults
 		echo.
 		echo [92;1m  --dump-profile[0m        Dump the Arduino build profile
 		echo [92;1m  --profile [profile][0m   Use the specified Arduino build profile
 		echo.
-		exit /b 1
+		set help_requested=1
+		goto parseArgsEnd
 	) else if "%~1" == "--debug-tools" (
 		:: call :displayWarning "Enabling debug tools"
 		set build_flags=%build_flags% -DDebugTools
@@ -325,6 +342,20 @@ exit /b 0
 	) else if "%~1" == "--shell-on-serial" (
 		:: call :displayWarning "Enabling shell on serial"
 		set build_flags=%build_flags% -DShellOnSerial
+	) else if "%~1" == "--product-profile" (
+		if "%~2" == "" (
+			call :displayError "Missing product profile name!"
+			exit /b 1
+		)
+		if /I "%~2" == "pu850" (
+			set build_flags=%build_flags% -DFW_PRODUCT_PROFILE=1
+		) else if /I "%~2" == "rayanlamp" (
+			set build_flags=%build_flags% -DFW_PRODUCT_PROFILE=2
+		) else (
+			call :displayError "Unknown product profile: %~2"
+			exit /b 1
+		)
+		shift
 	) else if "%~1" == "--dump-profile" (
 		call :displayInfo "Dumping the Arduino build profile"
 		set arduino_cli_flags=%arduino_cli_flags% --dump-profile

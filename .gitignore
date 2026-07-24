@@ -48,6 +48,8 @@
 
 # Kernel Module Compile Results
 *.mod*
+!go.mod
+!go.sum
 .tmp_versions/
 modules.order
 Module.symvers
@@ -60,6 +62,15 @@ dkms.conf
 # Build artifacts
 Build/
 build/
+dist/
+publish/
+
+# IDE state
+.vs/
+*.suo
+*.user
+*.VC.db
+*.ipch
 
 # Arduino CLI and libraries (installed during CI)
 bin/
@@ -69,10 +80,18 @@ Arduino/
 ~/.arduino15/
 ~/Arduino/
 ~local.h
+~secrets.h
 
 # Node.js
 node_modules/
 _codeql_detected_source_root
+
+# Cross-language uploader artifacts
+Tool/**/bin/
+Tool/**/obj/
+Tool/**/build/
+Tool/**/dist/
+Tool/**/publish/
 
 # Temporary workflow files
 upgrade_output.txt

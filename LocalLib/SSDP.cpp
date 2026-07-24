@@ -3,218 +3,114 @@
 #include "SSDP.h"
 #include "SSDPDevice.cpp"
 
+static void appendXmlEscaped(String &output, const char *value)
+{
+	if (!value) return;
+
+	while (*value) {
+		switch (*value) {
+			case '&': output += F("&amp;"); break;
+			case '<': output += F("&lt;"); break;
+			case '>': output += F("&gt;"); break;
+			case '"': output += F("&quot;"); break;
+			case '\'': output += F("&apos;"); break;
+			default: output += *value; break;
+		}
+		++value;
+	}
+}
+
 String getSSDPSchema()
 {
-	String s = "";
+	String schema;
+	if (!schema.reserve(2048)) return schema;
 
-	if ( !s.reserve(2048) ) return s;
-
-	s += "<?xml version=\"1.0\"?>\n";
-	s += "<root xmlns=\"urn:schemas-upnp-org:device-1-0\">\n";
-	s += "\t<specVersion>\n";
-	s += "\t\t<major>1</major>\n";
-	s += "\t\t<minor>0</minor>\n";
-	s += "\t</specVersion>\n";
-
-	s += "\t<URLBase>";
-	s += "http://" + WiFi.hostname() + ":" + String(HTTP_Port) + "/";
-	s += "</URLBase>\n";
-
-	s += "\t<device>\n";
-
-	// s += "\t\t<pnpx:X_deviceCategory xmlns:pnpx=\"http://schemas.microsoft.com/windows/pnpx/2005/11\">IndicatorDevice</pnpx:X_deviceCategory>\n";
-	// s += "\t\t<df:X_deviceCategory xmlns:df=\"http://schemas.microsoft.com/windows/2008/09/devicefoundation\">IndicatorDevice</df:X_deviceCategory>\n";
-	// s += "\t\t<dlna:X_DLNADOC xmlns:dlna="urn:schemas-dlna-org:device-1-0">DMR-1.50</dlna:X_DLNADOC>\n";
-
-	// s += "\t\t<deviceType>upnp:rootdevice</deviceType>\n";
-	s += "\t\t<deviceType>urn:schemas-upnp-org:device:Basic:1</deviceType>\n";
-
-	s += "\t\t<friendlyName>";
-	s += WiFi.hostname();
-	s += "</friendlyName>\n";
-
-	s += "\t\t<presentationURL>";
-	s += "/"; // This is the root URL of the device
-	s += "</presentationURL>\n";
-
-	s += "\t\t<modelName>";
-	s += "PU850";
-	s += "</modelName>\n";
-
-	s += "\t\t<modelURL>";
-	s += "https://pandcaspian.com/%D8%A7%D9%86%D8%AF%DB%8C%DA%A9%D8%A7%D8%AA%D9%88%D8%B1/";
-	s += "</modelURL>\n";
-
-	s += "\t\t<modelDescription>";
-	s += "PU850 Indicator Device";
-	s += "</modelDescription>\n";
-
-	s += "\t\t<modelNumber>";
-	if (strnlen(E_MainVersion, sizeof(E_MainVersion)) == 0)
-		s += firmwareVersion; // "Unknown";
-	else	s += String(E_MainVersion);
-	/*
-	s += 1; // major
-	s += ".";
-	s += 0; // minor
-	*/
-	s += "</modelNumber>\n";
-
-	String serialNumber = String(E_SerialNumber == ErrorNum_ || E_SerialNumber >= UnDefinedNum_ ? String("Unknown") : String(E_SerialNumber));
-
-	s += "\t\t<serialNumber>";
-	s += String(serialNumber);
-	s += "</serialNumber>\n";
-
-	s += "\t\t<manufacturer>";
-	s += "Pand Caspian";
-	s += "</manufacturer>\n";
-
-	s += "\t\t<manufacturerURL>";
-	s += "https://pandcaspian.com/";
-	s += "</manufacturerURL>\n";
-
-	char uuid[37];
-	uint32_t chipId = ESP.getChipId();
-	memset(uuid, '\0', sizeof(uuid));
-	sprintf_P(uuid, PSTR("38323636-4558-4dda-9188-cda0e6%02x%02x%02x"),
-		(uint16_t) ((chipId >> 16) & 0xff),
-		(uint16_t) ((chipId >>  8) & 0xff),
-		(uint16_t)   chipId        & 0xff);
-
-	s += "\t\t<UDN>uuid:";
-	s += String(uuid);
-	s += "</UDN>\n";
-
-	s += "\t</device>\n";
-	s += "</root>\n";
-
-	return s;
-}
-
-/*
-StreamString output;
-if (output.reserve(1024))
-{
-	uint32_t ip = WiFi.localIP();
-	uint32_t chipId = ESP.getChipId();
-	output.printf(ssdpTemplate,
-		IP2STR(&ip),
-		hostName,
-		chipId,
-		modelName,
-		modelNumber,
-		(uint8_t) ((chipId >> 16) & 0xff),
-		(uint8_t) ((chipId >>  8) & 0xff),
-		(uint8_t)   chipId        & 0xff
+	schema += F(
+		"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+		"<root xmlns=\"urn:schemas-upnp-org:device-1-0\">\n"
+		"\t<specVersion><major>1</major><minor>1</minor></specVersion>\n"
+		"\t<URLBase>http://"
 	);
-	request->send(200, "text/xml", (String)output);
-} else {
-	request->send(500);
+
+	const IPAddress activeIP = SSDPDevice.activeInterfaceIP();
+	if (activeIP == IPAddress(0, 0, 0, 0)) {
+		const String hostname = WiFi.hostname();
+		appendXmlEscaped(schema, hostname.c_str());
+	}
+	else {
+		schema += activeIP.toString();
+	}
+	schema += ':';
+	schema += HTTP_Port;
+	schema += F("/</URLBase>\n\t<device>\n\t\t<deviceType>");
+	appendXmlEscaped(schema, FW_UPNP_DEVICE_TYPE);
+	schema += F("</deviceType>\n\t\t<friendlyName>");
+	const String hostname = WiFi.hostname();
+	appendXmlEscaped(schema, hostname.c_str());
+	schema += F("</friendlyName>\n\t\t<manufacturer>");
+	appendXmlEscaped(schema, FW_MANUFACTURER_NAME);
+	schema += F("</manufacturer>\n\t\t<manufacturerURL>");
+	appendXmlEscaped(schema, FW_MANUFACTURER_URL);
+	schema += F("</manufacturerURL>\n\t\t<modelDescription>");
+	appendXmlEscaped(schema, FW_PRODUCT_DESCRIPTION);
+	schema += F("</modelDescription>\n\t\t<modelName>");
+	appendXmlEscaped(schema, FW_PRODUCT_MODEL_NAME);
+	schema += F("</modelName>\n\t\t<modelNumber>");
+
+	if (strnlen(E_MainVersion, sizeof(E_MainVersion)) == 0) {
+		appendXmlEscaped(schema, firmwareVersion.c_str());
+	}
+	else {
+		appendXmlEscaped(schema, E_MainVersion);
+	}
+
+	schema += F("</modelNumber>\n\t\t<modelURL>");
+	appendXmlEscaped(schema, FW_PRODUCT_MODEL_URL);
+	schema += F("</modelURL>\n\t\t<serialNumber>");
+
+	const String serialNumber =
+		E_SerialNumber == ErrorNum_ || E_SerialNumber >= UnDefinedNum_
+			? F("Unknown")
+			: String(E_SerialNumber);
+	appendXmlEscaped(schema, serialNumber.c_str());
+
+	schema += F(
+		"</serialNumber>\n"
+		"\t\t<presentationURL>/</presentationURL>\n"
+		"\t\t<UDN>uuid:"
+	);
+	appendXmlEscaped(schema, SSDPDevice.uuid());
+	schema += F("</UDN>\n\t</device>\n</root>\n");
+
+	/*
+	 * Intentionally no serviceList here. FW_UPNP_SERVICE_TYPE controls SSDP
+	 * discovery only; a downstream product must provide the matching SOAP/GENA
+	 * implementation and description before opting in.
+	 */
+	return schema;
 }
-*/
-
-/*
-static const char* ssdpTemplate =
-	"<?xml version=\"1.0\"?>"
-	"<root xmlns=\"urn:schemas-upnp-org:device-1-0\">"
-		"<specVersion>"
-			"<major>1</major>"
-			"<minor>0</minor>"
-		"</specVersion>"
-		"<URLBase>http://%u.%u.%u.%u/</URLBase>"
-		"<device>"
-		"<deviceType>upnp:rootdevice</deviceType>"
-		// "<deviceType>urn:schemas-upnp-org:device:Basic:1</deviceType>"
-
-		"<friendlyName>%s</friendlyName>"
-
-		// s += "\t\t<friendlyName>";
-		// s +=_device->friendlyName();
-		// s += "</friendlyName>\r\n";
-
-		"<presentationURL>%s</presentationURL>"
-
-		// if (strlen(_device->presentationURL())) {
-		// 	s += "\t<presentationURL>";
-		// 	s +=_device->presentationURL();
-		// 	s += "</presentationURL>\r\n";
-		// }
-
-		"<modelName>%s</modelName>"
-		// s += "\t\t<modelName>";
-		// s +=_device->modelName();
-		// s += "</modelName>\r\n";
-
-		"<modelNumber>%s</modelNumber>"
-
-		// if (modelNumber->major > 0 || modelNumber->minor > 0) {
-		// 	s += "\t\t<modelNumber>";
-		// 	s +=modelNumber->major;
-		// 	s += ".";
-		// 	s +=modelNumber->minor;
-		// 	s += "</modelNumber>\r\n";
-		// }
-
-		"<serialNumber>%u</serialNumber>"
-
-		// if (strlen(_device->serialNumber())) {
-		// 	s += "\t\t<serialNumber>";
-		// 	s +=_device->serialNumber();
-		// 	s += "</serialNumber>\r\n";
-		// }
-
-		// "<modelURL>http://www.espressif.com</modelURL>"
-
-		// "<manufacturer>Espressif Systems</manufacturer>"
-
-		// s += "\t\t<manufacturer>";
-		// s +=_device->manufacturer();
-		// s += "</manufacturer>\r\n";
-
-		// "<manufacturerURL>http://www.espressif.com</manufacturerURL>"
-
-		// if (strlen(_device->manufacturerURL())) {
-		// 	s += "\t\t<manufacturerURL>";
-		// 	s +=_device->manufacturerURL();
-		// 	s += "</manufacturerURL>\r\n";
-		// }
-
-		// "<UDN>uuid:38323636-4558-4dda-9188-cda0e6%02x%02x%02x</UDN>"
-
-		// s += "\t\t<UDN>uuid:";
-		// s +=_device->uuid();
-		// s += "</UDN>\r\n";
-
-		"</device>"
-	"</root>\r\n"
-	"\r\n";
-*/
 
 void initSSDP()
 {
-	SSDPDevice.setSchemaURL("description.xml");
+	SSDPDevice.setSchemaURL(FW_UPNP_SCHEMA_PATH);
 	SSDPDevice.setHTTPPort(HTTP_Port);
 	SSDPDevice.setName(WiFi.hostname().c_str());
-	// SSDPDevice.setDeviceType("upnp:rootdevice");
-	SSDPDevice.setDeviceType("urn:schemas-upnp-org:device:Basic:1");
+	SSDPDevice.setDeviceType(FW_UPNP_DEVICE_TYPE);
 	SSDPDevice.setSerialNumber(String(E_SerialNumber).c_str()); // ESP.getChipId()
-	SSDPDevice.setModelName("PU850");
+	SSDPDevice.setModelName(FW_PRODUCT_MODEL_NAME);
 	SSDPDevice.setModelNumber(E_MainVersion);
-	SSDPDevice.setModelURL("https://pandcaspian.com/%D8%A7%D9%86%D8%AF%DB%8C%DA%A9%D8%A7%D8%AA%D9%88%D8%B1/");
-	SSDPDevice.setManufacturer("Pand Caspian");
-	SSDPDevice.setManufacturerURL("https://pandcaspian.com/");
+	SSDPDevice.setModelURL(FW_PRODUCT_MODEL_URL);
+	SSDPDevice.setManufacturer(FW_MANUFACTURER_NAME);
+	SSDPDevice.setManufacturerURL(FW_MANUFACTURER_URL);
 	SSDPDevice.setURL("/");
-	SSDPDevice.setInterval(60);
+	SSDPDevice.setInterval(FW_UPNP_CACHE_MAX_AGE_SECONDS);
 
 	if (strnlen(E_MainVersion, sizeof(E_MainVersion)) == 0) {
 		// If the version is not set, use the sketch MD5 as a fallback
 		SSDPDevice.setModelNumber(firmwareVersion.c_str());
 	}
 
-	// SSDP schema
-	server->on("/description.xml", HTTP_GET, [](AsyncWebServerRequest * request) {
-		// SSDPDevice.schema(HTTP.client());
+	server->on("/" FW_UPNP_SCHEMA_PATH, HTTP_GET, [](AsyncWebServerRequest * request) {
 		const String schema = getSSDPSchema();
 
 		if (schema.length() == 0) {
@@ -222,10 +118,14 @@ void initSSDP()
 			return;
 		}
 
-		// (TODO) Access-Control-Allow-Origin: *
-
-		// request->send(200, "text/xml", SSDP.schema());
-		request->send(200, "text/xml", schema);
+		AsyncWebServerResponse *response =
+			request->beginResponse(200, "text/xml; charset=utf-8", schema);
+		response->addHeader("Access-Control-Allow-Origin", "*");
+		response->addHeader(
+			"SERVER",
+			"ESP8266/1.0 UPnP/1.1 " FW_UPNP_SERVER_PRODUCT "/" FW_UPNP_SERVER_VERSION
+		);
+		request->send(response);
 	});
 
 	SSDPDevice.begin();

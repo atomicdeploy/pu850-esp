@@ -1,298 +1,307 @@
 #include "Telnet.h"
+#include "Shell.h"
 #include <ESP8266mDNS.h>
 
-#ifndef ShellOnSerial
-inline void putchar1(C8 ch)
+bool Telnet_Initialized = false;
+U16 Telnet_Port = 23;
+ESPTelnet telnet;
+
+static bool telnetCallbacksConfigured = false;
+static bool telnetMdnsPublished = false;
+static bool telnetGreetingPending = false;
+static U16 telnetActivePort = 0;
+static TelnetInputState telnetInputState = TelnetState_Data;
+static U8 telnetNegotiationCommand = 0;
+
+static bool TelnetNetworkAvailable()
 {
-	telnet.print(ch);
+	return
+		WiFi.status() == WL_CONNECTED ||
+		WiFi.softAPIP().isSet();
 }
 
-inline void exitshell()
+static void TelnetSendNegotiation(U8 negotiation, U8 option)
 {
-	telnet.disconnectClient(true);
-}
-#endif
-
-// callback functions for telnet events, such as init connection
-void onTelnetConnect(String ip) {
-	// disable local echo: FF FB 01, enable local echo: FF FC 01
-	telnet.write(0xFF); // IAC
-	telnet.write(0xFB); // WILL
-	telnet.write(0x01); // ECHO
-	
-    // Character-at-a-time mode
-    telnet.write(IAC); telnet.write(WILL); telnet.write(0x03); // SGA
-    telnet.write(IAC); telnet.write(DO);   telnet.write(0x03); // SGA
-
-	telnet.print("\e[H" "\e[2J"); // clear entire screen
-
-	telnet.print(ansi.setFG(ANSI_BRIGHT_GREEN));
-	telnet.println("Welcome " + telnet.getIP() + " to " + WiFi.hostname() + "!");
-	// telnet.println("Firmware: " + String(ESP.getSketchMD5()));
-	telnet.print(ansi.reset());
-
-	#ifdef ShellOnSerial
-	telnet.print(ansi.setFG(ANSI_BRIGHT_RED));
-	telnet.println("\nShell is on Serial");
-	telnet.print(ansi.reset());
-	#else
-	newPrompt(0);
-	#endif
+	const U8 data[] = {TELNET_IAC, negotiation, option};
+	telnet.write(data, sizeof(data));
 }
 
-void onTelnetDisconnect(String ip) {
-	#ifndef ShellOnSerial
-	newPrompt(0);
-	#endif
+static void TelnetNegotiate(U8 negotiation, U8 option)
+{
+	switch (negotiation) {
+		case TELNET_DO:
+			if (
+				option == TELNET_OPTION_ECHO ||
+				option == TELNET_OPTION_SGA
+			) {
+				TelnetSendNegotiation(TELNET_WILL, option);
+			} else {
+				TelnetSendNegotiation(TELNET_WONT, option);
+			}
+			break;
+
+		case TELNET_DONT:
+			if (
+				option == TELNET_OPTION_ECHO ||
+				option == TELNET_OPTION_SGA
+			) {
+				TelnetSendNegotiation(TELNET_WONT, option);
+			}
+			break;
+
+		case TELNET_WILL:
+			if (option == TELNET_OPTION_SGA)
+				TelnetSendNegotiation(TELNET_DO, option);
+			else
+				TelnetSendNegotiation(TELNET_DONT, option);
+			break;
+
+		case TELNET_WONT:
+			if (option == TELNET_OPTION_SGA)
+				TelnetSendNegotiation(TELNET_DONT, option);
+			break;
+	}
 }
 
-void onTelnetReconnect(String ip) {
+static size_t TelnetShellWrite(
+	void *,
+	const U8 *data,
+	size_t size
+)
+{
+	if (!telnet.isConnected() || data == nullptr || size == 0)
+		return 0;
+
+	return telnet.write(data, size);
+}
+
+static void TelnetShellClose(void *)
+{
+	/*
+	 * Mark the logical session closed before ESPTelnet invokes its disconnect
+	 * callback. This prevents ShellSubmitLine from drawing one last prompt.
+	 */
+	ShellDisconnect(TelnetShellSession);
+
+	if (telnet.isConnected())
+		telnet.disconnectClient(true);
+}
+
+void TelnetResetParser()
+{
+	telnetInputState = TelnetState_Data;
+	telnetNegotiationCommand = 0;
+}
+
+static void TelnetSendGreeting()
+{
+	if (!telnetGreetingPending || !telnet.isConnected())
+		return;
+
+	telnetGreetingPending = false;
+
+	// Server-side echo and character-at-a-time operation.
+	TelnetSendNegotiation(TELNET_WILL, TELNET_OPTION_ECHO);
+	TelnetSendNegotiation(TELNET_WILL, TELNET_OPTION_SGA);
+	TelnetSendNegotiation(TELNET_DO, TELNET_OPTION_SGA);
+
+	ShellClearScreen(TelnetShellSession);
+	String_ToShell(
+		TelnetShellSession,
+		ansi.setFG(ANSI_BRIGHT_GREEN).c_str()
+	);
+
+	String welcome = "Welcome ";
+	welcome += telnet.getIP();
+	welcome += " to ";
+	welcome += FW_PRODUCT_NAME;
+
+	const String hostname = WiFi.hostname();
+	if (hostname.length() > 0)
+		welcome += " (" + hostname + ")";
+	welcome += "!";
+
+	String_NewLine_ToShell(TelnetShellSession, welcome.c_str());
+	String_ToShell(TelnetShellSession, ansi.reset().c_str());
+	ShellNewPrompt(TelnetShellSession, false);
+}
+
+static void onTelnetConnect(String)
+{
+	TelnetResetParser();
+	ShellInitialize(
+		TelnetShellSession,
+		ShellTransport_Telnet,
+		TelnetShellWrite,
+		TelnetShellClose
+	);
+
+	/*
+	 * ESPTelnet invokes onConnect before it marks the socket connected, then
+	 * drains all input waiting at that instant. Defer negotiation and visible
+	 * output until Telnet_Service regains control after telnet.loop().
+	 */
+	telnetGreetingPending = true;
+}
+
+static void onTelnetDisconnect(String)
+{
+	telnetGreetingPending = false;
+	TelnetResetParser();
+	ShellDisconnect(TelnetShellSession);
+}
+
+static void onTelnetReconnect(String ip)
+{
 	onTelnetConnect(ip);
 }
 
-void onTelnetConnectionAttempt(String ip) { }
-
-void onTelnetInput(String str) {
-	#ifdef ShellOnSerial
-	return;
-	#endif
-	
-	const U8 len = str.length();
-
-	const char* buff = str.c_str();
-
-	for (U8 i = 0; /*buff[i] != Null_*/ i < len; i++) {
-		const C8 ch = buff[i];
-		
-		TelnetProcessByte(ch);
-		// ShellService(ch);
-	}
+static void onTelnetConnectionAttempt(String)
+{
 }
 
-void TelnetProcessByte(const C8 ch)
+static void onTelnetInput(String input)
 {
-	
-	switch (telnet_state)
-	{
-		case STATE_DATA:
-			if (ch == IAC) {
-				telnet_state = STATE_IAC;
-				break;
-			}
-			// Normal data, forward to shell
-			ShellService(ch);
-			
+	const size_t length = input.length();
+
+	for (size_t i = 0; i < length; ++i)
+		TelnetProcessByte(static_cast<U8>(input[i]));
+}
+
+void TelnetProcessByte(U8 ch)
+{
+	switch (telnetInputState) {
+		case TelnetState_Data:
+			if (ch == TELNET_IAC)
+				telnetInputState = TelnetState_IAC;
+			else
+				ShellService(TelnetShellSession, ch);
 			break;
 
-		case STATE_IAC:
+		case TelnetState_IAC:
 			switch (ch) {
-				case IAC:
-					// Escaped 0xFF (literal 0xFF data)
-					ShellService(ch);
-					telnet_state = STATE_DATA;
+				case TELNET_IAC:
+					ShellService(TelnetShellSession, ch);
+					telnetInputState = TelnetState_Data;
 					break;
 
-				case DO:
-				case DONT:
-				case WILL:
-				case WONT:
-					telnet_cmd = ch;
-					telnet_state = STATE_OPT;
+				case TELNET_DO:
+				case TELNET_DONT:
+				case TELNET_WILL:
+				case TELNET_WONT:
+					telnetNegotiationCommand = ch;
+					telnetInputState = TelnetState_Option;
+					break;
+
+				case TELNET_SB:
+					telnetInputState =
+						TelnetState_Subnegotiation;
 					break;
 
 				default:
-					// Simple commands like IAC NOP, ignore ch.
-					telnet_state = STATE_DATA;
+					// Ignore simple commands such as NOP and GA.
+					telnetInputState = TelnetState_Data;
 					break;
 			}
 			break;
 
-		case STATE_OPT:
-			{
-				const U8 option = ch;
+		case TelnetState_Option:
+			TelnetNegotiate(telnetNegotiationCommand, ch);
+			telnetNegotiationCommand = 0;
+			telnetInputState = TelnetState_Data;
+			break;
 
-				// Handle negotiation logic
-				switch (option)
-				{
-					case 0x01: // ECHO
-						switch (telnet_cmd)
-						{
-							case DO:					// Client asks us to ECHO → accept (this is enforced, and the default option, anyway)
-							case DONT:
-								telnet.write(IAC);
-								telnet.write(WILL);
-								telnet.write(option);
-								break;
-								
-							case WILL:					// Client says "I WILL ECHO" → agree, let the client handle echoing itself
-							case WONT:
-								telnet.write(IAC);
-								telnet.write(DO);
-								telnet.write(option);
-								break;
-								
-						}
-						break;
-						
-					case 0x03: // "Suppress Go-Ahead"
-						switch (telnet_cmd)
-						{
-							case DO:					// Client asks us to "Suppress Go-Ahead" → accept (we are always sending one character-at-a-time)
-							case DONT:
-								telnet.write(IAC);
-								telnet.write(WILL);
-								telnet.write(option);
-							break;
-							
-							case WILL:					// Client says "I WILL Suppress Go-Ahead" → agree (this allows receiving one character-at-a-time from the client)
-							case WONT:
-								telnet.write(IAC);
-								telnet.write(DO);
-								telnet.write(option);
-							break;
-						}
-						break;
-						
-					default:
-						// Politely refuse unsupported options.
-						switch (telnet_cmd) {
-							// For every `DO`, respond `WONT`.
-							case DO:	telnet.write(IAC); telnet.write(WONT); telnet.write(option); break;
-							// For every `WILL`, respond `DONT`.
-							case WILL:	telnet.write(IAC); telnet.write(DONT); telnet.write(option); break;
-						}
-						break;
-				}
-
-				telnet_state = STATE_DATA;
+		case TelnetState_Subnegotiation:
+			if (ch == TELNET_IAC) {
+				telnetInputState =
+					TelnetState_SubnegotiationIAC;
 			}
+			break;
+
+		case TelnetState_SubnegotiationIAC:
+			if (ch == TELNET_SE)
+				telnetInputState = TelnetState_Data;
+			else
+				telnetInputState = TelnetState_Subnegotiation;
 			break;
 	}
 }
 
-bool Telnet_Setup()
+static void TelnetConfigureCallbacks()
 {
+	if (telnetCallbacksConfigured)
+		return;
+
 	telnet.onConnect(onTelnetConnect);
 	telnet.onConnectionAttempt(onTelnetConnectionAttempt);
 	telnet.onReconnect(onTelnetReconnect);
 	telnet.onDisconnect(onTelnetDisconnect);
 	telnet.onInputReceived(onTelnetInput);
 	telnet.setLineMode(false);
+	telnetCallbacksConfigured = true;
+}
 
+bool Telnet_Setup()
+{
+	TelnetConfigureCallbacks();
+
+	if (
+		Telnet_Initialized &&
+		telnetActivePort == Telnet_Port
+	) {
+		return true;
+	}
+
+	if (Telnet_Initialized)
+		Telnet_End();
+
+	if (!TelnetNetworkAvailable())
+		return false;
+
+	Telnet_Initialized = telnet.begin(Telnet_Port, false);
+	if (!Telnet_Initialized)
+		return false;
+
+	telnetActivePort = Telnet_Port;
 	MDNS.addService("telnet", "tcp", Telnet_Port);
-
-	return telnet.begin(Telnet_Port, false); // Set `false` to prevent checking: WiFi.status() == WL_CONNECTED || WiFi.softAPIP().isSet()
+	telnetMdnsPublished = true;
+	return true;
 }
 
 void Telnet_End()
 {
-	telnet.stop();
+	const bool wasInitialized = Telnet_Initialized;
+	Telnet_Initialized = false;
+	telnetActivePort = 0;
+	telnetGreetingPending = false;
 
-	MDNS.removeService("telnet");
-}
+	if (wasInitialized)
+		telnet.stop(true);
 
-inline void Telnet_Service()
-{
-	telnet.loop();
-}
+	TelnetResetParser();
+	ShellDisconnect(TelnetShellSession);
 
-/*
-void Telnet_Setup()
-{
-	Telnet.begin();
-	Telnet.setNoDelay(true);
+	if (telnetMdnsPublished) {
+		MDNS.removeService("telnet");
+		telnetMdnsPublished = false;
+	}
 }
 
 void Telnet_Service()
 {
-
-	// check if there are any new clients
-	if (Telnet.hasClient())
-	{
-
-		U8 i;
-
-		// find free/disconnected spot
-		for (i = 0; i < MAX_TELNET_CLIENTS; i++)
-		{
-			if (!telnetClients[i]) // equivalent to !telnetClients[i].connected()
-			{
-				// assign the next telnet client to the free/disconnected spot
-				telnetClients[i] = Telnet.available();
-				break;
-			}
-		}
-
-		// no free/disconnected spot so reject
-		if (i == MAX_TELNET_CLIENTS)
-		{
-			Telnet.available().println("BUSY!");
-			// hints: Telnet.available() is a WiFiClient with short-term scope
-			// when out of scope, a WiFiClient will
-			// - flush() - all data will be sent
-			// - stop() - automatically too
-			// Serial.printf("Telnet server is busy with %d active connections\n", MAX_TELNET_CLIENTS);
-		}
+	if (!TelnetNetworkAvailable()) {
+		Telnet_End();
+		return;
 	}
 
-	// check TCP clients for data
-	for (U8 i = 0; i < MAX_TELNET_CLIENTS; i++)
-	{
-		while (telnetClients[i].available() && Serial.availableForWrite() > 0)
-		{
-			Serial.write(telnetClients[i].read());
-		}
+	if (
+		!Telnet_Initialized ||
+		telnetActivePort != Telnet_Port
+	) {
+		Telnet_Setup();
+		return;
 	}
 
-	// determine maximum output size "fair TCP use"
-	// client.availableForWrite() returns 0 when !client.connected()
-	int maxToTcp = 0;
-
-	for (U16 i = 0; i < MAX_TELNET_CLIENTS; i++)
-	{
-		if (telnetClients[i])
-		{
-			int afw = telnetClients[i].availableForWrite();
-
-			if (afw)
-			{
-				if (!maxToTcp) {
-					maxToTcp = afw;
-				} else {
-					maxToTcp = std::min(maxToTcp, afw);
-				}
-			} else {
-				// warn but ignore congested clients
-				// Serial.println("client is congested");
-			}
-		}
-	}
-
-	// check UART for data
-	size_t len = std::min(Serial.available(), maxToTcp);
-	       len = std::min(len, (size_t)STACK_PROTECTOR);
-
-	if (len)
-	{
-		U8 sbuf[len];
-		U16 serial_got = Serial.readBytes(sbuf, len);
-
-		// push UART data to all connected Telnet clients
-		for (size_t i = 0; i < MAX_TELNET_CLIENTS; i++)
-		{
-			// if client.availableForWrite() was 0 (congested) and increased since then,
-			// ensure write space is sufficient:
-			if (telnetClients[i].availableForWrite() >= serial_got)
-			{
-				size_t tcp_sent = telnetClients[i].write(sbuf, serial_got);
-
-				if (tcp_sent != len)
-				{
-					// Serial.printf("len mismatch: available:%zd serial-read:%zd tcp-write:%zd\n", len, serial_got, tcp_sent);
-				}
-			}
-		}
-
-	}
+	telnet.loop();
+	TelnetSendGreeting();
 }
-*/
