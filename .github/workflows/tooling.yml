@@ -145,7 +145,10 @@ jobs:
   cpp-mingw:
     name: C++ cross-build (Linux to Windows)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Hosted Ubuntu package mirrors can occasionally take longer than the
+    # compiler build itself. Keep a bounded timeout without making a transient
+    # apt mirror delay cancel an otherwise healthy cross-build.
+    timeout-minutes: 30
 
     steps:
       - name: Check out source
