@@ -7,6 +7,7 @@ $ErrorActionPreference = 'Stop'
 $previousCgo = $env:CGO_ENABLED
 $previousOs = $env:GOOS
 $previousArch = $env:GOARCH
+$scriptRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 
 function Invoke-GoCommand {
     param([Parameter(Mandatory)][string[]] $Arguments)
@@ -17,6 +18,7 @@ function Invoke-GoCommand {
     }
 }
 
+Push-Location -LiteralPath $scriptRoot
 try {
     if (-not $SkipTests) {
         Invoke-GoCommand @('test', '-count=10', './...')
@@ -59,15 +61,15 @@ try {
         )
     }
 
-    Get-ChildItem -LiteralPath 'bin' -Recurse -File |
-        Sort-Object FullName |
-        ForEach-Object {
-            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash
-            Write-Output "$($_.FullName)|$($_.Length)|$hash"
-        }
+    foreach ($target in $targets) {
+        $artifact = Get-Item -LiteralPath $target.Output
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifact.FullName).Hash
+        Write-Output "$($artifact.FullName)|$($artifact.Length)|$hash"
+    }
 }
 finally {
     $env:CGO_ENABLED = $previousCgo
     $env:GOOS = $previousOs
     $env:GOARCH = $previousArch
+    Pop-Location
 }
