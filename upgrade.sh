@@ -110,21 +110,43 @@ fi
 # Function to get latest library version from cached library index
 get_latest_library_version() {
     local lib_name="$1"
-    python3 -c "
+    python3 -c '
 import json, sys
-with open('$LIBRARY_INDEX_CACHE', 'r') as f:
+with open(sys.argv[1], "r") as f:
     data = json.load(f)
-libs = data.get('libraries', [])
+libs = data.get("libraries", [])
 latest = None
-search_name = '''$lib_name'''
+search_name = sys.argv[2]
 for lib in libs:
-    name = lib.get('name', '')
-    version = lib.get('version', '')
+    name = lib.get("name", "")
+    version = lib.get("version", "")
     if name == search_name:
         if latest is None or version > latest:
             latest = version
-print(latest if latest else '')
-" 2>/dev/null
+print(latest if latest else "")
+' "$LIBRARY_INDEX_CACHE" "$lib_name" 2>/dev/null
+}
+
+# Function to get library repository URL from cached library index
+get_library_repository() {
+    local lib_name="$1"
+    python3 -c '
+import json, sys
+with open(sys.argv[1], "r") as f:
+    data = json.load(f)
+libs = data.get("libraries", [])
+latest = None
+latest_repo = ""
+search_name = sys.argv[2]
+for lib in libs:
+    name = lib.get("name", "")
+    version = lib.get("version", "")
+    if name == search_name:
+        if latest is None or version > latest:
+            latest = version
+            latest_repo = lib.get("repository", lib.get("website", ""))
+print(latest_repo)
+' "$LIBRARY_INDEX_CACHE" "$lib_name" 2>/dev/null
 }
 
 # Function to get latest ESP8266 platform version
@@ -163,7 +185,9 @@ current_platform=$(extract_platform_version)
 latest_platform=$(get_latest_platform_version)
 
 if [ -n "$latest_platform" ] && [ "$current_platform" != "$latest_platform" ]; then
-    echo "esp8266:esp8266|$current_platform|$latest_platform" >> "$UPDATES_FILE"
+    # ESP8266 platform repository
+    platform_repo_url="https://github.com/esp8266/Arduino"
+    echo "esp8266:esp8266|$current_platform|$latest_platform|$platform_repo_url" >> "$UPDATES_FILE"
     displayWarning "Platform esp8266:esp8266: $current_platform -> $latest_platform"
     HAS_UPDATES=true
 else
@@ -212,7 +236,9 @@ while IFS='|' read -r lib_name lib_version; do
     if [ -n "$latest" ] && [ "$lib_version" != "$latest" ]; then
         # Only upgrade, never downgrade (in case current version is from a different source/fork)
         if version_gte "$latest" "$lib_version"; then
-            echo "$lib_name|$lib_version|$latest" >> "$UPDATES_FILE"
+            # Get repository URL for changelog link
+            repo_url=$(get_library_repository "$lib_name")
+            echo "$lib_name|$lib_version|$latest|$repo_url" >> "$UPDATES_FILE"
             displayWarning "Library $lib_name: $lib_version -> $latest"
         else
             displaySuccess "Library $lib_name: $lib_version (newer than registry: $latest)"
@@ -231,7 +257,7 @@ if [ "$HAS_UPDATES" = true ] && [ "$CHECK_ONLY" = false ]; then
     displayInfo "Applying updates to $SKETCH_YAML..."
     
     # Apply updates
-    while IFS='|' read -r name old_version new_version; do
+    while IFS='|' read -r name old_version new_version repo_url; do
         if [ "$name" = "esp8266:esp8266" ]; then
             # Update platform version
             sed -i "s/platform: esp8266:esp8266 ($old_version)/platform: esp8266:esp8266 ($new_version)/g" "$SKETCH_YAML"
@@ -247,11 +273,28 @@ if [ "$HAS_UPDATES" = true ] && [ "$CHECK_ONLY" = false ]; then
     
     displaySuccess "All updates applied to $SKETCH_YAML"
     
+    # Output update details for CI use (before cleanup)
+    if [ -s "$UPDATES_FILE" ]; then
+        echo -e "\033[0m"
+        echo "UPDATE_DETAILS_START"
+        cat "$UPDATES_FILE"
+        echo "UPDATE_DETAILS_END"
+    fi
+    
     # Output for CI use
     echo -e "\033[0m"
     echo "UPDATES_APPLIED=true"
 elif [ "$HAS_UPDATES" = true ]; then
     displayWarning "Updates available but not applied (--check mode)"
+    
+    # Output update details for CI use (before cleanup)
+    if [ -s "$UPDATES_FILE" ]; then
+        echo -e "\033[0m"
+        echo "UPDATE_DETAILS_START"
+        cat "$UPDATES_FILE"
+        echo "UPDATE_DETAILS_END"
+    fi
+    
     echo -e "\033[0m"
     echo "UPDATES_AVAILABLE=true"
 else

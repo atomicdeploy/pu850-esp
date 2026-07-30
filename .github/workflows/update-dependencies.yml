@@ -60,31 +60,50 @@ jobs:
             LIBRARY_UPDATES=""
             PLATFORM_UPDATES=""
           else
-            # Extract library updates
+            # Extract library and platform updates from structured output
             LIBRARY_UPDATES=""
             LIBRARY_COUNT=0
-            while IFS= read -r line; do
-              if echo "$line" | grep -q "Library.*:.*->"; then
-                LIB_NAME=$(echo "$line" | sed -E 's/.*Library ([^:]+):.*/\1/')
-                OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
-                NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
-                LIBRARY_UPDATES="${LIBRARY_UPDATES}${LIB_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
-                LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
-              fi
-            done < <(grep "Library" upgrade_output.txt 2>/dev/null || true)
-            
-            # Extract platform updates
             PLATFORM_UPDATES=""
             PLATFORM_COUNT=0
-            while IFS= read -r line; do
-              if echo "$line" | grep -q "Platform.*:.*->"; then
-                PLATFORM_NAME=$(echo "$line" | sed -E 's/.*Platform ([^:]+):.*/\1/')
-                OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
-                NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
-                PLATFORM_UPDATES="${PLATFORM_UPDATES}${PLATFORM_NAME}|${OLD_VER}|${NEW_VER}"$'\n'
-                PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
-              fi
-            done < <(grep "Platform" upgrade_output.txt 2>/dev/null || true)
+            
+            # Parse UPDATE_DETAILS section if it exists
+            if grep -q "UPDATE_DETAILS_START" upgrade_output.txt 2>/dev/null; then
+              # Extract details between markers and process without subshell
+              while IFS='|' read -r name old_ver new_ver repo_url; do
+                if [ -n "$name" ]; then
+                  if [ "$name" = "esp8266:esp8266" ]; then
+                    # Platform update
+                    PLATFORM_UPDATES="${PLATFORM_UPDATES}${name}|${old_ver}|${new_ver}|${repo_url}"$'\n'
+                    PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
+                  else
+                    # Library update
+                    LIBRARY_UPDATES="${LIBRARY_UPDATES}${name}|${old_ver}|${new_ver}|${repo_url}"$'\n'
+                    LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
+                  fi
+                fi
+              done < <(sed -n '/UPDATE_DETAILS_START/,/UPDATE_DETAILS_END/p' upgrade_output.txt | grep -v "UPDATE_DETAILS")
+            else
+              # Fallback: Extract from log output (legacy format without repo URLs)
+              while IFS= read -r line; do
+                if echo "$line" | grep -q "Library.*:.*->"; then
+                  LIB_NAME=$(echo "$line" | sed -E 's/.*Library ([^:]+):.*/\1/')
+                  OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
+                  NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
+                  LIBRARY_UPDATES="${LIBRARY_UPDATES}${LIB_NAME}|${OLD_VER}|${NEW_VER}|"$'\n'
+                  LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
+                fi
+              done < <(grep "Library" upgrade_output.txt 2>/dev/null || true)
+              
+              while IFS= read -r line; do
+                if echo "$line" | grep -q "Platform.*:.*->"; then
+                  PLATFORM_NAME=$(echo "$line" | sed -E 's/.*Platform ([^:]+):.*/\1/')
+                  OLD_VER=$(echo "$line" | sed -E 's/.*: ([^ ]+) ->.*/\1/')
+                  NEW_VER=$(echo "$line" | sed -E 's/.*-> ([^ ]+).*/\1/')
+                  PLATFORM_UPDATES="${PLATFORM_UPDATES}${PLATFORM_NAME}|${OLD_VER}|${NEW_VER}|https://github.com/esp8266/Arduino"$'\n'
+                  PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
+                fi
+              done < <(grep "Platform" upgrade_output.txt 2>/dev/null || true)
+            fi
           fi
           
           # Export to GITHUB_OUTPUT
@@ -158,13 +177,46 @@ jobs:
             PR_BODY="${PR_BODY}| Platform | Previous Version | New Version |"$'\n'
             PR_BODY="${PR_BODY}|----------|------------------|-------------|"$'\n'
             
-            while IFS='|' read -r name old new; do
+            while IFS='|' read -r name old new repo_url; do
               if [ -n "$name" ]; then
                 PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` |"$'\n'
               fi
             done <<< "${{ steps.check_updates.outputs.platform_updates }}"
             
             PR_BODY="${PR_BODY}"$'\n'
+            
+            # Fetch and add release notes for platform updates
+            while IFS='|' read -r name old new repo_url; do
+              if [ -n "$name" ] && [ -n "$repo_url" ] && echo "$repo_url" | grep -q "github.com"; then
+                # Extract owner and repo from GitHub URL
+                repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
+                owner_repo=$(echo "$repo_clean" | sed 's|https://github.com/||')
+                
+                # Fetch release notes for the new version
+                PR_BODY="${PR_BODY}### ${name} (${old} → ${new})"$'\n\n'
+                
+                # Try to get release notes from GitHub API
+                release_notes=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                  "https://api.github.com/repos/${owner_repo}/releases/tags/${new}" | \
+                  jq -r '.body // empty' 2>/dev/null || echo "")
+                
+                if [ -n "$release_notes" ]; then
+                  PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
+                else
+                  # Try with 'v' prefix
+                  release_notes=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                    "https://api.github.com/repos/${owner_repo}/releases/tags/v${new}" | \
+                    jq -r '.body // empty' 2>/dev/null || echo "")
+                  
+                  if [ -n "$release_notes" ]; then
+                    PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
+                  else
+                    # No release notes found, show compare link
+                    PR_BODY="${PR_BODY}_Release notes not available. View changes: [${old}...${new}](${repo_clean}/compare/${old}...${new})_"$'\n\n'
+                  fi
+                fi
+              fi
+            done <<< "${{ steps.check_updates.outputs.platform_updates }}"
           fi
           
           # Add library updates table if any
@@ -173,13 +225,46 @@ jobs:
             PR_BODY="${PR_BODY}| Library | Previous Version | New Version |"$'\n'
             PR_BODY="${PR_BODY}|---------|------------------|-------------|"$'\n'
             
-            while IFS='|' read -r name old new; do
+            while IFS='|' read -r name old new repo_url; do
               if [ -n "$name" ]; then
                 PR_BODY="${PR_BODY}| **${name}** | \`${old}\` | \`${new}\` |"$'\n'
               fi
             done <<< "${{ steps.check_updates.outputs.library_updates }}"
             
             PR_BODY="${PR_BODY}"$'\n'
+            
+            # Fetch and add release notes for library updates
+            while IFS='|' read -r name old new repo_url; do
+              if [ -n "$name" ] && [ -n "$repo_url" ] && echo "$repo_url" | grep -q "github.com"; then
+                # Extract owner and repo from GitHub URL
+                repo_clean=$(echo "$repo_url" | sed 's/\.git$//')
+                owner_repo=$(echo "$repo_clean" | sed 's|https://github.com/||')
+                
+                # Fetch release notes for the new version
+                PR_BODY="${PR_BODY}### ${name} (${old} → ${new})"$'\n\n'
+                
+                # Try to get release notes from GitHub API
+                release_notes=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                  "https://api.github.com/repos/${owner_repo}/releases/tags/${new}" | \
+                  jq -r '.body // empty' 2>/dev/null || echo "")
+                
+                if [ -n "$release_notes" ]; then
+                  PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
+                else
+                  # Try with 'v' prefix
+                  release_notes=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                    "https://api.github.com/repos/${owner_repo}/releases/tags/v${new}" | \
+                    jq -r '.body // empty' 2>/dev/null || echo "")
+                  
+                  if [ -n "$release_notes" ]; then
+                    PR_BODY="${PR_BODY}${release_notes}"$'\n\n'
+                  else
+                    # No release notes found, show compare link
+                    PR_BODY="${PR_BODY}_Release notes not available. View changes: [${old}...${new}](${repo_clean}/compare/${old}...${new})_"$'\n\n'
+                  fi
+                fi
+              fi
+            done <<< "${{ steps.check_updates.outputs.library_updates }}"
           fi
           
           # Add what to do section
