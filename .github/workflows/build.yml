@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           # Arduino requires the checkout directory and primary sketch to match.
