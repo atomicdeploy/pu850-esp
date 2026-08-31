@@ -20,14 +20,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          # Clone to a directory with the same name to match the sketch file (Arduino CLI requirement)
-          path: ASA0002E
+          # Arduino requires the checkout directory and primary sketch to match.
+          path: pu850-esp
 
       - name: Install Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
       - name: Create Arduino CLI config
-        working-directory: ASA0002E
+        working-directory: pu850-esp
         run: |
           mkdir -p .vscode
           cat > .vscode/arduino-cli.yaml << 'EOF'
@@ -43,7 +43,7 @@ jobs:
           sed -i 's/^          //' .vscode/arduino-cli.yaml
 
       - name: Install ESP8266 platform
-        working-directory: ASA0002E
+        working-directory: pu850-esp
         run: |
           arduino-cli --config-file .vscode/arduino-cli.yaml core update-index
           # Extract platform version from sketch.yaml using sed (more portable)
@@ -58,7 +58,7 @@ jobs:
           arduino-cli --config-file .vscode/arduino-cli.yaml core install "esp8266:esp8266@${PLATFORM_VERSION}"
 
       - name: Install required libraries from sketch.yaml
-        working-directory: ASA0002E
+        working-directory: pu850-esp
         run: |
           # Parse libraries from sketch.yaml and install them
           # Only match lines after "libraries:" that start with "- " and have format "LibraryName (version)"
@@ -74,7 +74,7 @@ jobs:
           done
 
       - name: Build firmware
-        working-directory: ASA0002E
+        working-directory: pu850-esp
         run: |
           chmod +x build.sh
           ./build.sh
@@ -85,13 +85,13 @@ jobs:
         with:
           name: firmware
           path: |
-            ASA0002E/Build/*.bin
-            ASA0002E/Build/*.md5
-            ASA0002E/Build/build-info.txt
+            pu850-esp/Build/*.bin
+            pu850-esp/Build/*.md5
+            pu850-esp/Build/build-info.txt
           if-no-files-found: error
 
       - name: Generate build summary
-        working-directory: ASA0002E
+        working-directory: pu850-esp
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |

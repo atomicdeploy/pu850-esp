@@ -1,7 +1,7 @@
 profiles:
   ESP8266:
     notes: PU850
-    fqbn: esp8266:esp8266:generic
+    fqbn: esp8266:esp8266:generic:xtal=80,vt=flash,exception=disabled,stacksmash=disabled,ssl=basic,mmu=3232,non32xfer=fast,ResetMethod=nodemcu,CrystalFreq=26,FlashFreq=40,FlashMode=qio,eesz=1M,led=2,sdk=nonosdk_190703,ip=lm2f,dbg=Disabled,lvl=None____,wipe=none,baud=115200
     platforms:
       - platform: esp8266:esp8266 (3.1.2)
         platform_index_url: https://arduino.esp8266.com/stable/package_esp8266com_index.json
@@ -13,3 +13,4 @@ profiles:
       - NTPClient (3.2.1)
       - ArduinoJson (7.4.3)
       - Arduino_JSON (0.2.0)
+      - dir: LocalLib

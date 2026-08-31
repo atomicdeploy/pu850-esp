@@ -23,6 +23,7 @@ set build.cmd=%~nx0
 :: by default. Set ARDUINO_CLI_CONFIG to opt into an explicit config file.
 set arduino_cli_flags=
 if defined ARDUINO_CLI_CONFIG set arduino_cli_flags=--config-file "%ARDUINO_CLI_CONFIG%"
+set arduino_profile=
 
 set build_flags=-DARDUINO_CLI -DUSE_LOCALH
 
@@ -100,10 +101,27 @@ set flashSize=1
 
 set board_params=xtal=80,vt=flash,exception=disabled,stacksmash=disabled,ssl=basic,mmu=3232,non32xfer=fast,ResetMethod=nodemcu,CrystalFreq=26,FlashFreq=40,FlashMode=qio,eesz=%flashSize%M,led=2,sdk=nonosdk_190703,ip=lm2f,dbg=Disabled,lvl=None____,wipe=none,baud=115200
 
+:: Profile builds are isolated by Arduino CLI. Do not combine --profile with
+:: classic-mode --fqbn/--libraries flags. LocalLib is declared in sketch.yaml.
+set build_target_flags=--fqbn esp8266:esp8266:generic:%board_params%
+set build_library_flags=--libraries "%VSCA_WORKSPACE_DIR%\LocalLib"
+if defined arduino_profile (
+	set build_target_flags=--profile "%arduino_profile%"
+	set build_library_flags=
+)
+
 :: Compile the sketch
-set build_command=arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:%board_params% --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags="--no_cache_core" --build-property "--build.opt.flags=" --build-property build.extra_flags="-Wall %build_flags%" --build-path "%VSCA_BUILD_DIR%" --libraries "%VSCA_WORKSPACE_DIR%\LocalLib" --jobs 0 --log-level trace --log-file "%log_file%" %arduino_cli_flags%
+set build_command=arduino-cli compile --verbose %build_target_flags% --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags="--no_cache_core" --build-property "--build.opt.flags=" --build-property build.extra_flags="-Wall %build_flags%" --build-path "%VSCA_BUILD_DIR%" %build_library_flags% --jobs 0 --log-level trace --log-file "%log_file%" %arduino_cli_flags% "%VSCA_WORKSPACE_DIR%"
 
 powershell -Command "$nl = $('' | Out-String); . { Invoke-Expression ($Env:build_command) } *>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { ('[93m' + $($_.Exception.Message -replace '^(\..+)$', ('[92;1m$1[0m') -replace '^([║╠╚═]+)(.*)$', ('[0;96m$1[0m$2[0m') -replace '^(Error.+|.+fatal error.+)$', ('[91;1m$1[0m')) + '[0m') } else { $_.Replace('\\', '\').Replace('%VSCA_BUILD_DIR%', 'Build').Replace('%VSCA_WORKSPACE_DIR%', '').Replace('%USERPROFILE%', '~') -replace 'sketch', 'project' -replace 'esp8266[\\\/]hardware[\\\/]esp8266[\\\/](\d\.)+[\\\/]\w+[\\\/]', '' -replace '~[\\\/](Documents[\\\/]Arduino|AppData[\\\/]Local[\\\/]Arduino\d+[\\\/]packages[\\\/]esp8266[\\\/]hardware[\\\/]esp8266[\\\/][\d\.]*)[\\\/](libraries|bootloaders)[\\\/]', '' -replace '^(""?~\\AppData\\Local\\Arduino\d+\\(packages|internal)\\.+|default_encoding:.+|Alternatives for.+|Preferences override,.+|To change,.+|\s+Read more at.+|Tip:.+|Using (cached|previously|precompiled|library|board|core|global include).+)$', '[A' -replace '^(FQBN:)(.+)$', '[92;1m$1[0m$2[A' -replace '^(\s+)->', '$1→' -replace '^(.+)\.{3}$', ($nl + '[92;1m>> [93;1m$1[0m') -replace '^(.*[Ll]ibrary.+)$', ('[90m$1[0m') } }"
+
+:: Keep the established OTA artifact name even though the standards-compliant
+:: primary sketch shim is named after the repository folder.
+for %%e in (bin elf map) do (
+	if exist "%VSCA_BUILD_DIR%\pu850-esp.ino.%%e" (
+		move /y "%VSCA_BUILD_DIR%\pu850-esp.ino.%%e" "%VSCA_BUILD_DIR%\ASA0002E.ino.%%e" >nul
+	)
+)
 
 pushd "%VSCA_BUILD_DIR%"
 
@@ -249,7 +267,7 @@ exit /b
 exit /b 0
 
 :ensureArduinoCliVersion
-	set minimum_version=1.0.0
+	set minimum_version=1.3.0
 
 	set "found_version="
 
@@ -368,7 +386,7 @@ exit /b 0
 			exit /b 1
 		)
 		call :displayInfo "Using build profile: %2"
-		set arduino_cli_flags=%arduino_cli_flags% --profile %2
+		set arduino_profile=%~2
 		shift
 	) else (
 		call :displayWarning "Unknown argument: %~1"
