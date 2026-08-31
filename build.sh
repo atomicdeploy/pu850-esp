@@ -16,6 +16,9 @@ cd "$SCRIPT_DIR"
 # Set environment variables - matching build.cmd exactly
 export VSCA_WORKSPACE_DIR="$SCRIPT_DIR"
 export VSCA_BUILD_DIR="${VSCA_WORKSPACE_DIR}/Build"
+# Arduino requires the primary sketch filename to match the repository directory.
+# Keep the deployed OTA artifact name stable for existing consumers.
+export VSCA_SOURCE_SKETCH="pu850-esp.ino"
 export VSCA_SKETCH="ASA0002E.ino"
 
 # Detect if we're running in CI environment
@@ -28,13 +31,14 @@ log_file="${VSCA_WORKSPACE_DIR}/build.log"
 build_script="$(basename "${BASH_SOURCE[0]}")"
 
 arduino_cli_flags="--config-file ${VSCA_WORKSPACE_DIR}/.vscode/arduino-cli.yaml"
+arduino_profile=""
 
 build_flags="-DARDUINO_CLI -DUSE_LOCALH"
 
 export ARDUINO_UPDATER_ENABLE_NOTIFICATION=false
 
 # Minimum required Arduino CLI version
-minimum_version="1.0.0"
+minimum_version="1.3.0"
 
 # Flash size in MB
 flashSize=1
@@ -258,7 +262,7 @@ parseArgs() {
 					exit 1
 				fi
 				displayInfo "Using build profile: $2"
-				arduino_cli_flags="${arduino_cli_flags} --profile $2"
+				arduino_profile="$2"
 				shift 2
 				;;
 			*)
@@ -305,15 +309,13 @@ if ! ensureArduinoCliVersion; then
 	exit 1
 fi
 
-# Check that sketch name matches directory name (Arduino CLI requirement)
+# Check that the primary source sketch matches the directory name (Arduino CLI requirement)
 dir_name=$(basename "$VSCA_WORKSPACE_DIR")
-sketch_base="${VSCA_SKETCH%.ino}"
 expected_sketch="${dir_name}.ino"
 
-if [ "$VSCA_SKETCH" != "$expected_sketch" ]; then
-	displayWarning "Sketch filename '${VSCA_SKETCH}' does not match directory name '${dir_name}'"
-	displayWarning "Arduino CLI requires these to match. Consider renaming your sketch or directory."
-	displayWarning "In CI, use 'path: ${sketch_base}' in actions/checkout to clone to the correct directory."
+if [ "$VSCA_SOURCE_SKETCH" != "$expected_sketch" ] || [ ! -f "$VSCA_SOURCE_SKETCH" ]; then
+	displayError "Primary sketch '${VSCA_SOURCE_SKETCH}' must exist and match directory name '${dir_name}'"
+	exit 1
 fi
 
 displayInfo "Building ${VSCA_SKETCH}"
@@ -362,8 +364,15 @@ fi
 # Compile the sketch
 # Note: Removed --build-cache-path as it's deprecated
 # Arduino CLI compiles the sketch from the workspace directory
-# Add LocalLib to library path so local includes work
-build_command="arduino-cli compile --verbose --fqbn esp8266:esp8266:generic:${board_params} --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags=--no_cache_core --build-property build.opt.flags= --build-property build.extra_flags=\"-Wall ${build_flags}\" --build-path \"${VSCA_BUILD_DIR}\" --libraries \"${VSCA_WORKSPACE_DIR}/LocalLib\" --jobs 0 --log-level trace --log-file \"${log_file}\" ${arduino_cli_flags} \"${VSCA_WORKSPACE_DIR}\""
+# Profile builds are isolated by Arduino CLI. Do not combine --profile with
+# classic --fqbn/--libraries flags; sketch.yaml owns those settings.
+build_target_flags="--fqbn esp8266:esp8266:generic:${board_params}"
+build_library_flags="--libraries \"${VSCA_WORKSPACE_DIR}/LocalLib\""
+if [ -n "$arduino_profile" ]; then
+	build_target_flags="--profile \"${arduino_profile}\""
+	build_library_flags=""
+fi
+build_command="arduino-cli compile --verbose ${build_target_flags} --export-binaries --build-property compiler.cache_core=false --build-property mkbuildoptglobals.extra_flags=--no_cache_core --build-property build.opt.flags= --build-property build.extra_flags=\"-Wall ${build_flags}\" --build-path \"${VSCA_BUILD_DIR}\" ${build_library_flags} --jobs 0 --log-level trace --log-file \"${log_file}\" ${arduino_cli_flags} \"${VSCA_WORKSPACE_DIR}\""
 
 # Execute the build command with output filtering similar to PowerShell version
 prev_line=""
@@ -392,7 +401,7 @@ eval "$build_command" 2>&1 | while IFS= read -r line; do
 	   [[ "$line" =~ ^Using\ global\ include ]] || \
 	   [[ "$line" =~ SyntaxWarning: ]] || \
 	   [[ "$line" =~ ^\ +.*re\.split ]] || \
-	   [[ "$line" =~ ^[[:space:]]+[\^]+$ ]]; then
+	   [[ "$line" =~ ^[[:space:]]+\^+$ ]]; then
 		continue
 	fi
 	
@@ -475,6 +484,15 @@ done
 
 # Change to build directory
 pushd "$VSCA_BUILD_DIR" > /dev/null
+
+# Preserve the established OTA artifact name even though the Arduino primary
+# sketch now follows the mandatory directory-name convention.
+SOURCE_BASE="${VSCA_SOURCE_SKETCH%.ino}"
+for extension in bin elf map; do
+	if [ -f "${SOURCE_BASE}.ino.${extension}" ]; then
+		mv -f "${SOURCE_BASE}.ino.${extension}" "${VSCA_SKETCH}.${extension}"
+	fi
+done
 
 # Determine the output binary name (sketch name without .ino extension + .ino.bin)
 SKETCH_BASE="${VSCA_SKETCH%.ino}"
